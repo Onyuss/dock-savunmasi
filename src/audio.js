@@ -78,6 +78,10 @@ export const sfx = {
     burst({ freq: 900, type: 'bandpass', q: 1.5, dur: 0.2, vol: 0.35 });
     tone({ freq: 500, to: 120, dur: 0.15, vol: 0.12, type: 'square' });
   },
+  thrust() {
+    if (!ctx || !throttle('thrust', 0.05)) return;
+    burst({ freq: 380, dur: 0.14, vol: 0.4 });
+  },
   twirl() {
     if (!ctx) return;
     for (let k = 0; k < 4; k++) setTimeout(() => burst({ freq: 1800 - k * 200, type: 'bandpass', q: 2, dur: 0.12, vol: 0.25 }), k * 180);

@@ -1,12 +1,17 @@
 import * as THREE from 'three';
 import { buildHammerModel } from './hammer.js';
+import { Digger, buildLower, buildDockHole, LOWER, LOWER_HOLE, LOWER_BOUNDS, DOCK_HOLE } from './digger.js';
+import { setBounds } from './world.js';
 import { sfx } from './audio.js';
 
 // Oyunun akışı:
-//  dock (4 dalga, aralarda dükkân) → hammer (tünelde topçu) → finalPrep (dükkân)
-//  → final (kapının kilidini vur) → arrive (kapı açılır, Hammer girer) → emp → zafer
+//  dock (4 dalga, aralarda dükkân) → digger (Kazıcı iner, zemini deler) → hole (APU ile atla)
+//  → descent (iticilerle iniş) → lower (alt katta Kazıcı'yı yok et)
+//  → hammer (tünelde topçu) → finalPrep (dükkân) → final (kapının kilidini vur)
+//  → arrive (kapı patlar, Hammer girer) → emp → zafer
 const DOCK_WAVES = 4;
 const GATE_POS = new THREE.Vector3(109, 0, 42);
+const _v = new THREE.Vector3();
 
 export class Campaign {
   constructor(game, world, hammer, ui) {
@@ -14,6 +19,11 @@ export class Campaign {
     this.world = world;
     this.hammer = hammer;
     this.ui = ui;
+    this.digger = new Digger(game);
+    this.lower = buildLower(game.scene);
+    this.dockHole = buildDockHole(game.scene);
+    this.prompt = '';
+    this.inLower = false;
     this.phase = 'dock';
     this.n = 0;
     this.state = 'prep';
@@ -47,9 +57,22 @@ export class Campaign {
       g.shop.handleKeys(input);
       if (input.hit('Enter')) this.timer = 0;
     }
+    this.prompt = '';
     if (this.busy) return;
     switch (this.phase) {
       case 'dock': return this.updateDock(dt);
+      case 'digger': return this.updateDigger(dt);
+      case 'hole': return this.updateHole(dt, input);
+      case 'descent': {
+        // Karartma inişin kendi zaman çizelgesine bağlı (düşerken kararır, iticiler açılınca aydınlanır)
+        const d = this.descentApu && this.descentApu.descent;
+        if (d && d.stage === 'fall' && d.t > 0.75) this.ui.fade(true);
+        if (d && d.stage === 'thrust' && d.t > 0.35) this.ui.fade(false);
+        this.digger.update(dt, 0);
+        return;
+      }
+      case 'lower': return this.updateLower(dt);
+      case 'diggerDeath': return this.updateDiggerDeath(dt);
       case 'hammer': return this.updateHammer(dt);
       case 'finalPrep':
         this.timer -= dt;
@@ -112,9 +135,8 @@ export class Campaign {
     const bonus = 100 * this.n;
     g.shop.earn(bonus);
     if (this.n >= DOCK_WAVES) {
-      g.message('DOCK TUTULDU\nHammer geliyor — arka topun başına geç!', 4);
       this.state = 'done';
-      this.transition(3.5, () => this.startHammer());
+      this.startDigger();
       return;
     }
     this.state = 'prep';
@@ -133,6 +155,176 @@ export class Campaign {
         this.busy = false;
       }, 900);
     }, delay * 1000);
+  }
+
+  // ---------- Kazıcı: tavandan iner, zemini deler
+  startDigger() {
+    const d = this.digger;
+    this.phase = 'digger';
+    this.state = 'descend';
+    this.t = 0;
+    d.hp = d.maxHp;
+    d.alive = true;
+    d.minHp = d.maxHp * 0.45;      // Dock'ta yok edilemez: zırhı yarıya inince delmeyi hızlandırır
+    d.show(DOCK_HOLE.x, 100, DOCK_HOLE.z);
+    this.openBreaches(2);
+    this.toSpawn = Infinity;
+    this.game.message('KAZICI İNİYOR!\nAteş et — zırhı çok sağlam', 4);
+    sfx.drill();
+  }
+
+  updateDigger(dt) {
+    const d = this.digger;
+    const g = this.game;
+    this.t += dt;
+    d.update(dt, 1.4);
+    this.spawnFromBreaches(1, dt);
+    if (this.state === 'descend') {
+      const fast = d.hp <= d.minHp + 1;
+      d.pos.y = Math.max(15, d.pos.y - (fast ? 7 : 3) * dt);
+      if (d.pos.y <= 15) { this.state = 'drill'; this.t = 0; g.message('KAZICI ZEMİNİ DELİYOR!', 3); }
+    } else if (this.state === 'drill') {
+      d.pos.x = DOCK_HOLE.x + (Math.random() - 0.5) * 0.3;
+      if (Math.random() < 0.6) g.effects.sparks(_v.set(DOCK_HOLE.x + (Math.random() - 0.5) * 10, 0.3, DOCK_HOLE.z + (Math.random() - 0.5) * 10), 6, undefined, 10);
+      if (Math.random() < 0.3) g.effects.smoke(_v.set(DOCK_HOLE.x + (Math.random() - 0.5) * 12, 1, DOCK_HOLE.z + (Math.random() - 0.5) * 12), 3, 2.5, 0.4, 0x4a3a2c);
+      g.addShake(0.04);
+      if (Math.random() < dt) sfx.drill();
+      if (this.t > 6) {
+        this.state = 'sink';
+        this.dockHole.visible = true;
+        g.colliders.push(this.holeCollider = { x: DOCK_HOLE.x, z: DOCK_HOLE.z, r: 9.6 });
+        g.effects.bigExplosion(_v.set(DOCK_HOLE.x, 1, DOCK_HOLE.z), 1.5);
+        sfx.boom();
+      }
+    } else if (this.state === 'sink') {
+      d.pos.y -= 8 * dt;
+      if (d.pos.y < -14) {
+        d.hide();
+        this.phase = 'hole';
+        g.message('KAZICI ALT KATA GEÇTİ!\nBir APU’ya bin ve delikten atla', 5);
+      }
+    }
+  }
+
+  // ---------- Delik: APU ile atla
+  updateHole(dt, input) {
+    const g = this.game;
+    this.spawnFromBreaches(2, dt);
+    const p = g.pawn;
+    const pos = p.kind === 'infantry' ? p.pos : p.pos;
+    const dist = Math.hypot(pos.x - DOCK_HOLE.x, pos.z - DOCK_HOLE.z);
+    if (dist < 15) {
+      if (p.kind === 'apu' && p.alive) {
+        this.prompt = (this.game.isTouch ? 'ZIPLA' : 'SPACE') + ' — delikten atla';
+        if (input.hit('Space')) this.startDescent(p);
+      } else if (p.kind === 'infantry') {
+        this.prompt = 'Delikten yalnız APU ile inilir — bir APU’ya bin';
+      }
+    }
+  }
+
+  startDescent(apu) {
+    this.phase = 'descent';
+    this.descentApu = apu;
+    if (this.onUnlock) this.onUnlock(2);
+    apu.descend(_v.set(LOWER_HOLE.x, 0, LOWER_HOLE.z), () => this.enterLower(apu), () => this.onLanded(), DOCK_HOLE);
+  }
+
+  // Alt kata geçiş (ekran kararmışken)
+  enterLower(apu) {
+    const g = this.game;
+    this.inLower = true;
+    this.lower.root.visible = true;
+    setBounds(LOWER_BOUNDS);
+    g.colliders = this.lower.colliders;
+    g.targets = [g.infantry, apu];
+    g.swarm.clearAll();
+    this.world.breaches.forEach((b) => (b.active = false));
+    const d = this.digger;
+    d.minHp = 0;
+    d.show(LOWER.x, -1.5, -16);
+  }
+
+  onLanded() {
+    this.phase = 'lower';
+    this.acc = 0;
+    this.game.message('ALT KAT\nKazıcı’yı yok et!', 4);
+  }
+
+  updateLower(dt) {
+    const g = this.game;
+    const d = this.digger;
+    d.update(dt, 1.2);
+    // Tavandaki delikten de sentinel iner
+    this.acc += 0.9 * dt;
+    while (this.acc >= 1) {
+      this.acc -= 1;
+      _v.set(LOWER_HOLE.x + (Math.random() - 0.5) * 10, 44, LOWER_HOLE.z + (Math.random() - 0.5) * 10);
+      g.swarm.spawnAt(_v, new THREE.Vector3(0, -8, 0));
+    }
+    // Kazıcı'ya çok yaklaşmak yakar
+    const p = g.pawn;
+    if (p.alive !== false && p.pos && Math.hypot(p.pos.x - d.pos.x, p.pos.z - d.pos.z) < 17) {
+      p.damage(35 * dt);
+      if (Math.random() < 0.3) g.effects.sparks(_v.set(p.pos.x, 2, p.pos.z), 3, undefined, 5);
+    }
+    if (!d.alive) { this.phase = 'diggerDeath'; this.t = 0; this.boomT = 0; g.message('KAZICI ÇÖKÜYOR!', 3); }
+  }
+
+  updateDiggerDeath(dt) {
+    const g = this.game;
+    const d = this.digger;
+    this.t += dt;
+    d.update(dt, 0);
+    this.boomT -= dt;
+    if (this.t < 2.6 && this.boomT <= 0) {
+      this.boomT = 0.22;
+      g.effects.explosion(_v.set(d.pos.x + (Math.random() - 0.5) * 12, d.pos.y + 2 + Math.random() * 14, d.pos.z + (Math.random() - 0.5) * 12), 2);
+      g.addShake(0.2);
+      sfx.boom();
+    }
+    if (this.t >= 2.6 && d.active) {
+      for (let k = 0; k < 3; k++) g.effects.bigExplosion(_v.set(d.pos.x + (k - 1) * 4, d.pos.y + 6 + k * 3, d.pos.z), 2);
+      d.hide();
+      g.swarm.killAll();
+      g.addShake(1);
+      g.shop.earn(800);
+      g.message('KAZICI YOK EDİLDİ\n+800 kredi · Hammer geliyor!', 4);
+      this.transition(3.5, () => { this.leaveLower(); this.startHammer(); });
+    }
+  }
+
+  // Alt kattan çık: APU Dock'taki yerine döner
+  leaveLower() {
+    const g = this.game;
+    this.inLower = false;
+    this.lower.root.visible = false;
+    setBounds(null);
+    g.colliders = this.world.colliders;
+    g.targets = [g.infantry, ...g.apus, ...g.turrets];
+    const a = this.descentApu;
+    if (a && a.home) { a.pos.copy(a.home); a.lift = 0; }
+    if (g.infantry.inVehicle === null && !g.infantry.alive) { g.infantry.alive = true; g.infantry.hp = g.infantry.maxHp; }
+  }
+
+  respawnPoint(out) {
+    if (this.inLower) return out.set(LOWER_HOLE.x - 8, 0, LOWER_HOLE.z);
+    return null;
+  }
+
+  // Bölüm seçiminden doğrudan alt kata başla (iniş animasyonuyla)
+  startLowerDirect() {
+    const g = this.game;
+    const apu = g.apus[2];
+    this.n = DOCK_WAVES;
+    g.possess(apu);
+    apu.view = 'inside';
+    this.phase = 'descent';
+    this.descentApu = apu;
+    this.enterLower(apu);
+    apu.pos.set(LOWER_HOLE.x, 0, LOWER_HOLE.z);
+    apu.descent = { t: 0, stage: 'thrust', landing: apu.pos.clone(), onDone: () => this.onLanded(), thr: 0 };
+    apu.lift = 40;
   }
 
   // ---------- Hammer
@@ -272,6 +464,15 @@ export class Campaign {
           objective: gate.lockAlive ? 'Doğu kapısının kırmızı kilidini vur' : 'Kapı açılana kadar dayan',
         };
       }
+      case 'digger':
+        return { wave: 'KAZICI', info: 'Zırh ' + Math.ceil(this.digger.pct * 100) + '%', enemies: g.swarm.alive, objective: this.state === 'descend' ? 'Kazıcı iniyor — ateş et!' : 'Kazıcı zemini deliyor!' };
+      case 'hole':
+        return { wave: 'KAZICI', info: 'Delik açıldı', enemies: g.swarm.alive, objective: 'APU ile delikten atla (' + (g.isTouch ? 'ZIPLA' : 'SPACE') + ')' };
+      case 'descent':
+        return { wave: 'ALT KAT', info: 'İniş', enemies: g.swarm.alive, objective: 'İticiler devrede…' };
+      case 'lower':
+      case 'diggerDeath':
+        return { wave: 'ALT KAT', info: 'Kazıcı ' + Math.ceil(this.digger.pct * 100) + '%', enemies: g.swarm.alive, objective: 'Kazıcı’yı yok et — çok yaklaşma, yakar' };
       default:
         return { wave: 'SON GÖREV', info: this.phase === 'emp' ? 'EMP' : 'Hammer giriyor', enemies: g.swarm.alive, objective: '' };
     }

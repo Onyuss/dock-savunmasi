@@ -8,6 +8,8 @@ const _w = new THREE.Vector3();
 const _f = new THREE.Vector3();
 const _r = new THREE.Vector3();
 const _e = new THREE.Euler();
+const _thrBlue = new THREE.Color(0.55, 0.75, 1.4);
+const _thrCore = new THREE.Color(1.4, 1.1, 0.7);
 
 // Yürüyen silah kulesi. Model Blender'da üretilir (tools/build_models.py):
 // LegL/LegR kalçadan, ArmL/ArmR omuzdan döner; GunL/GunR bilekten nişan alır;
@@ -20,6 +22,7 @@ export class APU {
     this.root = models.apu.clone(true);
     this.root.position.copy(spot);
     this.pos = this.root.position;
+    this.home = spot.clone();
     this.bodyYaw = 0;
     this.aimYaw = 0;
     this.aimPitch = 0;
@@ -52,6 +55,9 @@ export class APU {
     this.arms = [{ group: n('ArmL'), side: -1, yaw: 0 }, { group: n('ArmR'), side: 1, yaw: 0 }];
     this.pods = ['L', 'R'].map((s) => ({ pod: n('Gun' + s), spin: n('Spin' + s), barrels: n('Barrels' + s), muzzles: [n('Muzzle' + s + '0'), n('Muzzle' + s + '1')] }));
     this.twirlT = [null, null];   // tabancayı parmakta çevirme (R)
+    this.lift = 0;                // yerden yükseklik (delikten iniş animasyonu)
+    this.crouch = 0;              // yere oturma çökmesi
+    this.descent = null;
     this.blob = makeBlob(game.scene, 3.2, 0.85);
     game.scene.add(this.root);
   }
@@ -88,10 +94,65 @@ export class APU {
     this.pilot.visible = this.view === 'outside';
   }
 
+  // Delikten iniş: düşüş → (karartma, alt kata geçiş) → ayak iticileriyle yavaşlayarak iniş
+  descend(landing, onSwap, onDone, holeCenter = null) {
+    this.descent = { t: 0, stage: 'fall', landing: landing.clone(), onSwap, onDone, thr: 0, hole: holeCenter && holeCenter.clone() };
+    sfx.thrust();
+  }
+
+  updateDescent(dt) {
+    const d = this.descent;
+    const fx = this.game.effects;
+    d.t += dt;
+    if (d.stage === 'fall') {
+      // Deliğin ortasına doğru kayarak düşer
+      if (d.hole) {
+        this.pos.x = THREE.MathUtils.damp(this.pos.x, d.hole.x, 5, dt);
+        this.pos.z = THREE.MathUtils.damp(this.pos.z, d.hole.z, 5, dt);
+      }
+      this.lift = d.t < 0.25 ? d.t * 4 : 1 - 12 * (d.t - 0.25) * (d.t - 0.25);
+      if (d.t > 1.3) {
+        d.stage = 'thrust';
+        d.t = 0;
+        this.pos.x = d.landing.x;
+        this.pos.z = d.landing.z;
+        this.lift = 40;
+        if (d.onSwap) d.onSwap();
+      }
+      return;
+    }
+    // İticiler: hız giderek düşer, yere yumuşak oturur
+    const k = Math.min(1, d.t / 4.5);
+    this.lift = 40 * Math.pow(1 - k, 3);
+    d.thr -= dt;
+    const cy = Math.cos(this.bodyYaw), sy = Math.sin(this.bodyYaw);
+    for (const s of [-1, 1]) {
+      _v.set(this.pos.x + s * 0.88 * cy, this.lift + 0.1, this.pos.z - s * 0.88 * sy);
+      for (let n = 0; n < 3; n++) {
+        _w.set((Math.random() - 0.5) * 2, -10 - Math.random() * 8, (Math.random() - 0.5) * 2);
+        fx.spawn(_v, _w, n ? _thrBlue : _thrCore, 0.18 + Math.random() * 0.12, 0.2);
+      }
+      if (d.thr <= 0) fx.flash(_v, 0.9, 0.05);
+    }
+    if (d.thr <= 0) { d.thr = 0.06; sfx.thrust(); }
+    if (this.lift < 6 && Math.random() < 0.5) fx.dust(_v.set(this.pos.x, 0.1, this.pos.z), 6);
+    if (this.manned) this.game.addShake(0.02);
+    if (k >= 1) {
+      this.lift = 0;
+      this.crouch = 1;
+      this.descent = null;
+      fx.dust(_v.set(this.pos.x, 0.1, this.pos.z), 30);
+      fx.smoke(_v.set(this.pos.x, 0.5, this.pos.z), 3, 1.8, 0.4);
+      if (this.manned) { this.game.addShake(0.9); sfx.step(); sfx.thud(); }
+      if (d.onDone) d.onDone();
+    }
+  }
+
   update(dt, input) {
     const look = input.look();
     this.aimYaw += look.yaw;
     this.aimPitch = THREE.MathUtils.clamp(this.aimPitch + look.pitch, -0.5, 0.9);
+    if (this.descent) { this.updateDescent(dt); return; }
 
     // Gövde nişana doğru yavaşça döner
     let diff = this.aimYaw - this.bodyYaw;
@@ -197,9 +258,10 @@ export class APU {
     const k = this.moveAmt;
     this.phase += dt * 4.2 * k;
     const s = Math.sin(this.phase);
-    this.legL.rotation.x = s * 0.32 * k;
-    this.legR.rotation.x = -s * 0.32 * k;
-    this.root.position.y = Math.abs(s) * 0.12 * k;
+    this.crouch = THREE.MathUtils.damp(this.crouch, 0, 3, dt);
+    this.legL.rotation.x = s * 0.32 * k - this.crouch * 0.35;
+    this.legR.rotation.x = -s * 0.32 * k - this.crouch * 0.35;
+    this.root.position.y = this.lift + Math.abs(s) * 0.12 * k - this.crouch * 0.5;
     if (k > 0.3 && Math.sign(s) !== Math.sign(this.lastSin)) {
       const foot = (s > 0 ? this.legR : this.legL).getWorldPosition(_w);
       foot.y = 0.1;
@@ -240,7 +302,7 @@ export class APU {
     } else {
       _e.set(this.aimPitch * 0.8, this.aimYaw, 0, 'YXZ');
       _v.set(2.6, 1.6, 11).applyEuler(_e);
-      cam.position.set(this.pos.x, 5.6, this.pos.z).add(_v);
+      cam.position.set(this.pos.x, 5.6 + this.lift, this.pos.z).add(_v);
       cam.position.y = Math.max(1, cam.position.y);
       cam.rotation.set(this.aimPitch, this.aimYaw, 0, 'YXZ');
     }

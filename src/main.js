@@ -144,6 +144,15 @@ const game = {
     if (opt.player) this.rockets.addShot();
     const r = this.swarm.raycast(origin, dir, t);
     if (r) { t = r.t; hit = r.i; }
+    // Kazıcı (boss)
+    const bt = campaign.digger.hitTest(origin, dir, t);
+    if (bt !== null) {
+      t = bt;
+      hit = -1;
+      campaign.digger.damage(opt.damage * mul);
+      this.effects.sparks(_shotPt.copy(origin).addScaledVector(dir, t), 5, _magmaSpark, 7);
+      showHit();
+    }
     // Finalde kapının kilidi de vurulabilir
     if (campaign.phase === 'final') {
       const lt = world.gate.rayHit(origin, dir, t);
@@ -205,6 +214,9 @@ const game = {
     else if (res === 'gate') this.message('KİLİDE KİLİTLENDİ', 0.7);
     else if (!res && !this.rockets.ready) this.message('Roket doluyor', 0.8);
   },
+  // Roketler Kazıcı'ya çarpınca patlar ve ona hasar verir
+  bossNear(p, r) { return campaign.digger.near(p, r); },
+  damageBossAt(p, r, amount) { if (campaign.digger.near(p, r)) campaign.digger.damage(amount); },
   gateLockTarget() {
     return campaign.phase === 'final' && world.gate.lockAlive ? world.gate.lockPos : null;
   },
@@ -256,6 +268,7 @@ const _aimDir = new THREE.Vector3();
 const _aimPt = new THREE.Vector3();
 const _shotPt = new THREE.Vector3();
 const _dimSpark = new THREE.Color(0.7, 0.65, 0.5);
+const _magmaSpark = new THREE.Color(1, 0.3, 0.06);
 const _v = new THREE.Vector3();
 
 await loadModels();
@@ -275,7 +288,7 @@ const hammer = new HammerLevel(game);
 const ui = {
   fade(on) { $('fade').classList.toggle('on', on); },
   end(win, title, text) {
-    if (win) unlockChapter(4);
+    if (win) unlockChapter(5);
     $('endTitle').textContent = title;
     $('endTitle').className = win ? 'win' : 'lose';
     $('endText').textContent = text;
@@ -312,22 +325,27 @@ document.querySelectorAll('.chapter').forEach((b) => b.addEventListener('click',
   renderChapters();
 }));
 renderChapters();
+// Bölümler: 1 Dock savunması · 2 Alt kat (Kazıcı) · 3 Hammer · 4 Kapı
 function beginChapter(n) {
   if (n === 2) {
-    game.shop.earn(400);
-    campaign.n = 4;
-    campaign.phase = 'hammer';
-    campaign.startHammer();
+    game.shop.earn(300);
+    campaign.startLowerDirect();
   } else if (n === 3) {
-    game.shop.earn(800);
+    game.shop.earn(600);
+    campaign.n = 4;
+    campaign.startHammer();
+  } else if (n === 4) {
+    game.shop.earn(1000);
     campaign.n = 4;
     campaign.backToDock();
   }
 }
+campaign.onUnlock = unlockChapter;
 const _origStartHammer = campaign.startHammer.bind(campaign);
-campaign.startHammer = () => { unlockChapter(2); _origStartHammer(); };
+campaign.startHammer = () => { unlockChapter(3); _origStartHammer(); };
 const _origBack = campaign.backToDock.bind(campaign);
-campaign.backToDock = () => { unlockChapter(3); _origBack(); };
+campaign.backToDock = () => { unlockChapter(4); _origBack(); };
+game.isTouch = isTouch;
 
 // --- Etkileşim (bin / in / kamera)
 function interactions() {
@@ -357,6 +375,7 @@ function interactions() {
       game.possess(inf);
     } else if (input.hit('KeyV') && p.kind === 'apu') p.toggleView();
   }
+  if (campaign.prompt) prompt = campaign.prompt;
   const el = $('prompt');
   el.style.display = prompt ? 'block' : 'none';
   if (prompt) el.textContent = prompt;
@@ -379,6 +398,12 @@ function updateHud(dt) {
   setText('waveInfo', h.info);
   setText('enemies', 'Düşman ' + (h.enemies === Infinity ? '∞' : h.enemies) + ' · Leş ' + game.kills);
   setText('objective', h.objective ? '▸ ' + h.objective : '');
+  const dg = campaign.digger;
+  $('boss').style.display = dg.active && dg.alive ? 'flex' : 'none';
+  if (dg.active) {
+    $('bossFill').style.width = (dg.pct * 100).toFixed(1) + '%';
+    $('bossFill').className = 'fill boss' + (dg.hp <= dg.minHp + 1 && dg.minHp > 0 ? ' armor' : '');
+  }
   setText('livesTxt', p.kind === 'hammer' ? '—' : '♥'.repeat(Math.max(0, game.lives)) || '0');
   const rk = game.rockets;
   $('rocketFill').style.width = (rk.progress * 100).toFixed(0) + '%';
@@ -501,7 +526,7 @@ function frame() {
       input.look();
       game.respawnT -= dt;
       if (game.respawnT <= 0) {
-        p.pos.copy(world.depotPos).add(_v.set(6, 0, -6));
+        if (!campaign.respawnPoint(p.pos)) p.pos.copy(world.depotPos).add(_v.set(6, 0, -6));
         p.hp = p.maxHp;
         p.alive = true;
         p.ammo = p.mag;

@@ -145,7 +145,7 @@ export class Rockets {
       }
       lit = r;
       const hitEnemy = sw.nearest(r.pos, 2.4) >= 0;
-      if (hitEnemy || dist < 2 || r.pos.y <= 0.4 || r.life > 6 || (g.gateLockHit && g.gateLockHit(r.pos, 2.5))) this.explode(r);
+      if (hitEnemy || dist < 2 || r.pos.y <= 0.4 || r.life > 6 || (g.gateLockHit && g.gateLockHit(r.pos, 2.5)) || (g.bossNear && g.bossNear(r.pos, 0.5))) this.explode(r);
     }
     if (lit) {
       this.light.position.copy(lit.pos);
@@ -161,6 +161,7 @@ export class Rockets {
     g.effects.bigExplosion(r.pos, 1);
     g.swarm.damageRadius(r.pos, 11, 260 * g.shop.dmg, -1, true);
     if (g.damageGateLock) g.damageGateLock(r.pos, 8, 220 * g.shop.dmg);
+    if (g.damageBossAt) g.damageBossAt(r.pos, 6, 300 * g.shop.dmg);
     const d = r.pos.distanceTo(g.camera.position);
     g.addShake(Math.max(0, 0.7 - d / 120));
     sfx.boom();

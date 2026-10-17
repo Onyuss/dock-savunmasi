@@ -458,6 +458,10 @@ export function buildWorld(scene) {
   return { colliders, apuSpots, depotPos, breaches, gate, update };
 }
 
+// Geçerli alanın sınırları (Dock ya da alt kat)
+let BOUNDS = HALL;
+export function setBounds(b) { BOUNDS = b || HALL; }
+
 // Daire çarpıştırıcılardan ve salon sınırından itme
 export function collide(pos, radius, colliders) {
   for (const c of colliders) {
@@ -470,6 +474,6 @@ export function collide(pos, radius, colliders) {
       pos.z = c.z + (dz / d) * min;
     }
   }
-  pos.x = THREE.MathUtils.clamp(pos.x, HALL.minX + radius, HALL.maxX - radius);
-  pos.z = THREE.MathUtils.clamp(pos.z, HALL.minZ + radius, HALL.maxZ - radius);
+  pos.x = THREE.MathUtils.clamp(pos.x, BOUNDS.minX + radius, BOUNDS.maxX - radius);
+  pos.z = THREE.MathUtils.clamp(pos.z, BOUNDS.minZ + radius, BOUNDS.maxZ - radius);
 }

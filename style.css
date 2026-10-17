@@ -51,6 +51,13 @@ body.scoped #crosshair { width: 10px; height: 10px; }
 /* --- Hammer monitörü: nişangâh monitörün içinde çizilir */
 body.gunner #crosshair { display: none; }
 
+#boss { position: absolute; top: 70px; left: 50%; transform: translateX(-50%); width: min(420px, 70vw); display: none;
+  align-items: center; gap: 10px; font-size: 13px; letter-spacing: 3px; color: #ff6a3a; text-shadow: 0 0 6px #000; }
+#boss .bar { height: 12px; border-color: #5a1a0a; background: #1a0805; }
+.fill.boss { background: linear-gradient(90deg, #7a1a06, #ff5a1a); }
+.fill.boss.armor { background: #8a8a84; }
+@media (max-height: 520px) { #boss { top: 46px; font-size: 11px; } }
+
 #credits { color: #ffd27a; }
 #objective { position: absolute; top: 46px; left: 50%; transform: translateX(-50%); font-size: 15px; color: #e2eee4;
   letter-spacing: 1px; text-shadow: 0 0 6px #000; white-space: nowrap; }
