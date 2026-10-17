@@ -48,26 +48,8 @@ body.scoped #crosshair { width: 10px; height: 10px; }
 .fill.over { background: #ff4d3a; }
 .val { width: 70px; text-align: right; color: #e2eee4; }
 .val.wide { width: auto; flex: 1; text-align: left; }
-/* --- Hammer nişancı ekranı (CRT) */
-#gunner { position: absolute; inset: 0; display: none; }
-body.gunner #gunner { display: block; }
+/* --- Hammer monitörü: nişangâh monitörün içinde çizilir */
 body.gunner #crosshair { display: none; }
-#gunnerCanvas { position: absolute; inset: 0; width: 100%; height: 100%; }
-#gunner .g-scan { position: absolute; inset: 6% 9% 22% 9%; border-radius: 22px; mix-blend-mode: screen;
-  background: repeating-linear-gradient(0deg, rgba(120,255,140,0.06) 0 2px, transparent 2px 4px),
-              radial-gradient(ellipse at center, rgba(60,200,90,0.10), rgba(0,40,10,0.25)); }
-#gunner .g-frame { position: absolute; inset: 6% 9% 22% 9%; border: 3px solid #5cf08a88; border-radius: 22px;
-  box-shadow: 0 0 24px #5cf08a44 inset, 0 0 0 2000px rgba(0,0,0,0.12); }
-#gunner .g-reticle { position: absolute; left: 50%; top: 50%; width: 120px; height: 120px; transform: translate(-50%, -50%);
-  border: 2px solid #9dff7acc; border-radius: 50%;
-  background:
-    linear-gradient(#9dff7a, #9dff7a) center / 2px 26px no-repeat,
-    linear-gradient(#9dff7a, #9dff7a) center / 26px 2px no-repeat; }
-#gunner .g-reticle::before, #gunner .g-reticle::after { content: ""; position: absolute; top: 50%; width: 46px; height: 2px; background: #9dff7a; }
-#gunner .g-reticle::before { right: 100%; }
-#gunner .g-reticle::after { left: 100%; }
-#gunner .g-title { position: absolute; left: 11%; top: 8%; color: #9dff7a; font-size: 13px; letter-spacing: 3px; }
-#gunner .g-read { position: absolute; right: 11%; top: 8%; color: #9dff7a; font-size: 13px; letter-spacing: 1px; text-align: right; white-space: pre; }
 
 #credits { color: #ffd27a; }
 #objective { position: absolute; top: 46px; left: 50%; transform: translateX(-50%); font-size: 15px; color: #e2eee4;
@@ -109,8 +91,7 @@ body.gunner #crosshair { display: none; }
   border: 1px solid #23382b; cursor: pointer; pointer-events: auto; }
 .chapter b { color: #5cf08a; margin-right: 6px; }
 .chapter.sel { border-color: #5cf08a; background: #1d3a28; }
-.chapter:disabled { opacity: .35; cursor: default; }
-.chapter:disabled::after { content: " 🔒"; }
+.chapter.done::after { content: " ✓"; color: #5cf08a; }
 
 #fps { position: absolute; right: 12px; bottom: 8px; font-size: 12px; color: #6e8a76; }
 #damage { position: absolute; inset: 0; box-shadow: inset 0 0 160px #ff3b2a; opacity: 0; transition: opacity .25s; }

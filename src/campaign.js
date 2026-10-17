@@ -188,9 +188,11 @@ export class Campaign {
     const gate = this.world.gate;
     if (!gate.lockAlive && !this.lockDown) {
       this.lockDown = true;
-      this.game.message('KİLİT PARÇALANDI\nKapı açılıyor — dayan!', 4);
-      this.game.effects.explosion(gate.lockPos, 3);
+      this.game.message('KİLİT PARÇALANDI\nKAPI PATLADI — Hammer geliyor!', 4);
+      gate.blowUp(this.game.effects);
+      this.game.addShake(0.8);
       sfx.boom();
+      setTimeout(() => sfx.boom(), 250);
     }
     if (gate.isOpen) this.startArrival();
   }

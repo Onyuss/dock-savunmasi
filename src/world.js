@@ -150,17 +150,26 @@ export function buildWorld(scene) {
   box(224, H, 2, M.wall, 0, H / 2, -80);
   box(224, H, 2, M.wall, 0, H / 2, 80);
   box(2, H, 164, M.wall, -110, H / 2, 0);
-  box(2, H, 164, M.wall, 110, H / 2, 0);
+  // Doğu duvarında kapı açıklığı (z 29–55, yükseklik 20): duvar üç parça, arkası koridor
+  const GZ0 = 29, GZ1 = 55, GH = 20;
+  box(2, H, GZ0 + 82, M.wall, 110, H / 2, (GZ0 - 82) / 2);
+  box(2, H, 82 - GZ1, M.wall, 110, H / 2, (GZ1 + 82) / 2);
+  box(2, H - GH, GZ1 - GZ0, M.wall, 110, (H + GH) / 2, (GZ0 + GZ1) / 2);
+  // Doğu duvarı boyunca uzanan şerit/boru: açıklıkta kesilir
+  const eastRun = (fn, z0, z1) => { fn(z1 - z0, (z0 + z1) / 2); };
   for (const y of [2.6, 14]) {
     const mat = y < 5 ? M.green : M.greenDim;
     box(216, 0.14, 0.2, mat, 0, y, -78.9);
     box(216, 0.14, 0.2, mat, 0, y, 78.9);
     box(0.2, 0.14, 156, mat, -108.9, y, 0);
-    box(0.2, 0.14, 156, mat, 108.9, y, 0);
+    eastRun((len, zc) => box(0.2, 0.14, len, mat, 108.9, y, zc), -78, GZ0);
+    eastRun((len, zc) => box(0.2, 0.14, len, mat, 108.9, y, zc), GZ1, 78);
   }
   for (const [y, r] of [[4.6, 0.45], [5.7, 0.3], [6.5, 0.22]]) {
     for (const z of [-78.3, 78.3]) cyl(r, r, 214, M.pipe, 0, y, z, 10).rotation.z = Math.PI / 2;
-    for (const x of [-108.3, 108.3]) cyl(r, r, 154, M.pipe, x, y, 0, 10).rotation.x = Math.PI / 2;
+    cyl(r, r, 154, M.pipe, -108.3, y, 0, 10).rotation.x = Math.PI / 2;
+    eastRun((len, zc) => { cyl(r, r, len, M.pipe, 108.3, y, zc, 10).rotation.x = Math.PI / 2; }, -77, GZ0 - 1);
+    eastRun((len, zc) => { cyl(r, r, len, M.pipe, 108.3, y, zc, 10).rotation.x = Math.PI / 2; }, GZ1 + 1, 77);
   }
   for (let x = -96; x <= 96; x += 16) {
     box(3, H, 3, M.pillar, x, H / 2, -77.8);
@@ -169,8 +178,10 @@ export function buildWorld(scene) {
   }
   for (let z = -64; z <= 64; z += 16) {
     box(3, H, 3, M.pillar, -107.8, H / 2, z);
+    colliders.push({ x: -107.8, z, r: 2.1 });
+    if (z > GZ0 - 3 && z < GZ1 + 3) continue;   // kapı açıklığında sütun yok
     box(3, H, 3, M.pillar, 107.8, H / 2, z);
-    colliders.push({ x: -107.8, z, r: 2.1 }, { x: 107.8, z, r: 2.1 });
+    colliders.push({ x: 107.8, z, r: 2.1 });
   }
 
   // --- Kubbe, taşıyıcı kemerler, halkalar, kablolar
@@ -289,12 +300,19 @@ export function buildWorld(scene) {
     for (let z = zc - 9; z <= zc + 9; z += 4.5) colliders.push({ x, z, r: 4.6 });
   }
 
-  // --- Doğu kapısı: finalde kilidi vurulup açılır, Hammer buradan girer
-  const door = box(1.2, 20, 26, M.hull, 109, 10, 42);
+  // --- Doğu kapısı: finalde kilidi vurulunca patlar, Hammer açıklıktan girer
+  const doorParts = [box(1.2, 20, 26, M.hull, 109, 10, 42)];
   box(1.4, 0.3, 27, M.blue, 108.7, 20.1, 42);
   box(1.4, 20, 0.3, M.blue, 108.7, 10, 29);
   box(1.4, 20, 0.3, M.blue, 108.7, 10, 55);
-  for (let k = 0; k < 4; k++) box(1.3, 0.5, 26, M.dark, 108.9, 3 + k * 4.5, 42);
+  for (let k = 0; k < 4; k++) doorParts.push(box(1.3, 0.5, 26, M.dark, 108.9, 3 + k * 4.5, 42));
+  // Patlamada saçılacak enkaz parçaları (başta gizli)
+  const debris = Array.from({ length: 16 }, (_, k) => {
+    const s = 1 + Math.random() * 2.2;
+    const m = box(0.6 + Math.random() * 0.6, s, s * (0.6 + Math.random()), k % 3 ? M.hull : M.dark, 109, -50, 42);
+    m.visible = false;
+    return { m, vel: new THREE.Vector3(), spin: new THREE.Vector3(), rest: false, h: s * 0.3 };
+  });
   // Kapının arkasındaki geçiş koridoru (Hammer buradan gelir)
   const corridorMat = M.wall.clone();
   corridorMat.side = THREE.BackSide;
@@ -337,21 +355,46 @@ export function buildWorld(scene) {
       }
       return false;
     },
+    // Kapı patlar: parçalar salona doğru saçılır, yere düşüp kalır
+    blowUp(effects) {
+      if (this.blown) return;
+      this.blown = true;
+      for (const p of doorParts) p.visible = false;
+      for (const [y, z] of [[4, 34], [10, 42], [16, 50], [6, 48], [14, 36]]) effects.bigExplosion(new THREE.Vector3(107, y, z), 1.2);
+      for (const d of debris) {
+        d.m.position.set(108.5, 2 + Math.random() * 16, 30 + Math.random() * 24);
+        d.vel.set(-(8 + Math.random() * 16), 4 + Math.random() * 10, (Math.random() - 0.5) * 12);
+        d.spin.set((Math.random() - 0.5) * 6, (Math.random() - 0.5) * 6, (Math.random() - 0.5) * 6);
+        d.m.visible = true;
+      }
+    },
     update(dt, time) {
       if (this.lockAlive) lockMat.color.setRGB(1.5 + Math.sin(time * 6) * 1.1, 0.4, 0.12);
-      if (!this.lockAlive && this.opening < 1) {
-        this.opening = Math.min(1, this.opening + dt / 6);
-        door.position.y = 10 + this.opening * 19;
+      if (this.blown) {
+        this.opening = Math.min(1, this.opening + dt / 1.5);
         if (this.opening >= 1) this.isOpen = true;
+        for (const d of debris) {
+          if (d.rest) continue;
+          d.vel.y -= 20 * dt;
+          d.m.position.addScaledVector(d.vel, dt);
+          d.m.rotation.x += d.spin.x * dt; d.m.rotation.y += d.spin.y * dt; d.m.rotation.z += d.spin.z * dt;
+          if (d.m.position.y <= d.h) {
+            d.m.position.y = d.h;
+            d.vel.y *= -0.25; d.vel.x *= 0.5; d.vel.z *= 0.5;
+            d.spin.multiplyScalar(0.5);
+            if (Math.abs(d.vel.y) < 1.5) d.rest = true;
+          }
+        }
       }
     },
   };
 
-  // --- Delme noktaları (kubbenin yüksek kısımlarında)
+  // --- Delme noktaları (kubbenin yüksek kısımlarında); koyu magma kızıllığında ışık
+  const magma = new THREE.MeshBasicMaterial({ color: new THREE.Color(0.85, 0.1, 0.02) });
   const breaches = [[-55, -42], [0, -62], [58, -28], [-18, -8]].map(([x, z]) => {
     const y = domeHeight(x, z);
     const pos = new THREE.Vector3(x, y - 2, z);
-    const glow = new THREE.Mesh(new THREE.CircleGeometry(6, 24), new THREE.MeshBasicMaterial({ color: new THREE.Color(3, 1.2, 0.3), transparent: true, opacity: 0 }));
+    const glow = new THREE.Mesh(new THREE.CircleGeometry(6, 24), new THREE.MeshBasicMaterial({ color: new THREE.Color(0.9, 0.12, 0.02), transparent: true, opacity: 0 }));
     glow.rotation.x = Math.PI / 2;
     glow.position.set(x, y - 0.6, z);
     scene.add(glow);
@@ -360,17 +403,17 @@ export function buildWorld(scene) {
     cone.rotation.x = Math.PI;
     drill.add(cone);
     for (let k = -2; k <= 2; k++) {
-      const band = new THREE.Mesh(new THREE.TorusGeometry(4 * (0.5 - k * 0.11), 0.16, 4, 20), M.orange);
+      const band = new THREE.Mesh(new THREE.TorusGeometry(4 * (0.5 - k * 0.11), 0.16, 4, 20), magma);
       band.rotation.x = Math.PI / 2;
       band.position.y = k * 2;
       drill.add(band);
     }
     drill.position.set(x, y + 11, z);
     scene.add(drill);
-    const light = new THREE.PointLight(0xff8a30, 0, 0, 2);
+    const light = new THREE.PointLight(0xc22a08, 0, 0, 2);
     light.position.set(x, y - 6, z);
     scene.add(light);
-    const beam = shaft(scene, x, y - 1, z, y - 2, 3.5, 18, 0xff9a40, 0);
+    const beam = shaft(scene, x, y - 1, z, y - 2, 3.5, 18, 0x8a1c06, 0);
     return { pos, glow, drill, light, beam, active: false, open: 0, homeY: y + 11 };
   });
 
@@ -399,8 +442,8 @@ export function buildWorld(scene) {
       b.drill.rotation.y += dt * (1 + b.open * 6);
       b.glow.visible = b.open > 0.02;
       b.glow.material.opacity = b.open * (0.75 + Math.sin(time * 9) * 0.15);
-      b.light.intensity = b.open * (40000 + Math.sin(time * 13) * 8000 + Math.random() * 5000);
-      b.beam.material.uniforms.uOpacity.value = b.open * (0.08 + Math.sin(time * 7) * 0.02);
+      b.light.intensity = b.open * (11000 + Math.sin(time * 5) * 2500 + Math.random() * 1200);   // koyu magma kızıllığı, yavaş titreşim
+      b.beam.material.uniforms.uOpacity.value = b.open * (0.05 + Math.sin(time * 4) * 0.012);
     }
     for (let i = 0; i < DUST; i++) {
       const j = i * 3;

@@ -196,10 +196,11 @@ const game = {
   },
 
   // Roket: atılan yer silahın ağzı ya da kameranın biraz önü
-  fireRocket(from) {
-    const dir = camera.getWorldDirection(new THREE.Vector3());
+  // Nişan ışını verilmezse kameradan alınır (Hammer monitöründe imleç ışını verilir)
+  fireRocket(from, aimOrigin, aimDir, aimPt) {
+    const dir = aimDir || camera.getWorldDirection(new THREE.Vector3());
     if (!from) from = camera.position.clone().addScaledVector(dir, 2.5).add(_v.set(0, -0.5, 0));
-    const res = this.rockets.fire(from, camera.position.clone(), dir, this.aimPoint().clone());
+    const res = this.rockets.fire(from, aimOrigin || camera.position.clone(), dir, aimPt || this.aimPoint().clone());
     if (res === 'enemy') this.message('HEDEFE KİLİTLENDİ', 0.7);
     else if (res === 'gate') this.message('KİLİDE KİLİTLENDİ', 0.7);
     else if (!res && !this.rockets.ready) this.message('Roket doluyor', 0.8);
@@ -295,11 +296,13 @@ game.campaign = campaign;
 function unlocked() { try { return +localStorage.getItem('dock.chapter') || 1; } catch { return 1; } }
 function unlockChapter(n) { try { if (n > unlocked()) localStorage.setItem('dock.chapter', String(n)); } catch { /* gizli sekme */ } }
 let startChapter = 1;
+// Bütün bölümler baştan seçilebilir; ulaşılanlar ✓ ile işaretlenir
 function renderChapters() {
   const u = unlocked();
   document.querySelectorAll('.chapter').forEach((b) => {
     const n = +b.dataset.ch;
-    b.disabled = n > u;
+    b.disabled = false;
+    b.classList.toggle('done', n < u);
     b.classList.toggle('sel', n === startChapter);
   });
 }
@@ -394,16 +397,8 @@ function updateHud(dt) {
   setText('ammoTxt', p.kind === 'infantry'
     ? (p.reload > 0 ? 'Şarjör değişiyor…' : p.ammo + ' / ∞')
     : p.kind === 'apu' ? 'SOL ' + p.ammo[0] + ' · SAĞ ' + p.ammo[1] : p.kind === 'hammer' ? p.ammoText : 'Sınırsız');
-  // Hammer nişancı ekranı
-  const gunner = p.kind === 'hammer' && p.view === 'cockpit';
-  document.body.classList.toggle('gunner', gunner);
-  if (gunner) {
-    const cv = $('gunnerCanvas');
-    if (cv.width !== innerWidth || cv.height !== innerHeight) { cv.width = innerWidth; cv.height = innerHeight; }
-    p.drawTargets(cv.getContext('2d'), cv.width, cv.height);
-    setText('gunnerRead', 'BANT ' + p.ammoText + '\nISI ' + Math.round(p.heat) + '%' + (p.overheated ? ' KİLİT' : '') +
-      '\nGÖVDE ' + Math.ceil(p.hp / p.maxHp * 100) + '%\nROKET ' + (game.rockets.ready ? 'HAZIR' : Math.round(game.rockets.progress * 100) + '%'));
-  }
+  // Hammer monitöründe nişangâh monitörün içinde çizilir
+  document.body.classList.toggle('gunner', p.kind === 'hammer' && p.monitor);
   setText('hpLbl', p.kind === 'hammer' ? 'GÖVDE' : 'ZIRH');
   hitT -= dt;
   $('hitmarker').className = hitT > 0 ? 'on' : '';
@@ -477,7 +472,11 @@ if (testMode) {
   window.campaign = campaign;
   window.hammer = hammer;
   // Arka plandaki sekmede elle bir kare çizdirmek için
-  window.renderFrame = () => { game.pawn.applyCamera(camera); composer.render(); };
+  window.renderFrame = () => {
+    game.pawn.applyCamera(camera);
+    if (game.pawn.renderFeed) game.pawn.renderFeed(renderer, game.time);
+    composer.render();
+  };
   if (isTouch) { input.touchActive = true; document.body.classList.add('playing'); }
 }
 
@@ -527,7 +526,7 @@ function frame() {
 
   // Dürbün (sağ tık)
   const zoomFov = { infantry: 30, apu: 36, turret: 24, hammer: 30 }[game.pawn.kind] || 30;
-  const aiming = running && input.aim && !(game.pawn === game.infantry && !game.infantry.alive);
+  const aiming = running && input.aim && !(game.pawn === game.infantry && !game.infantry.alive) && !game.pawn.monitor;
   camera.fov = THREE.MathUtils.damp(camera.fov, aiming ? zoomFov : 75, 12, dt);
   camera.updateProjectionMatrix();
   input.zoom = camera.fov / 75;
@@ -550,6 +549,7 @@ function frame() {
   grade.uniforms.uTime.value = game.time;
   grade.uniforms.uHurt.value = Math.max(0, game.hurtT) * 2;
   grade.uniforms.uFlash.value = Math.min(1, game.flashT * 1.2);
+  if (game.pawn.renderFeed) game.pawn.renderFeed(renderer, game.time);
   composer.render();
   input.endFrame();
 
