@@ -155,7 +155,7 @@ export class Turret {
       _v.subVectors(aim, from).normalize();
       this.game.shoot(from, _v, { damage: 22 * dmgMul, splash: aimAt ? 0 : 2.6, splashDamage: 14, from, width: 0.1, airburst: !aimAt });
       this.game.effects.flash(from, 1.3, 0.04);
-      this.heat += aimAt ? 1.0 : 1.5;
+      this.heat += aimAt ? 0.3 : 0.45;
       if (this.manned) { this.game.addShake(0.06); sfx.flak(); }
       else if (from.distanceTo(this.game.camera.position) < 45) sfx.flak(0.35);
       if (this.heat >= 100) { this.heat = 100; this.overheated = true; sfx.overheat(); }

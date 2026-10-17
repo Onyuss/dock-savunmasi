@@ -138,8 +138,8 @@ export class APU {
     this.radius = 2.4;
     this.heat = 0;
     this.overheated = false;
-    this.ammoMax = 600;
-    this.ammo = [600, 600];
+    this.ammoMax = 1500;
+    this.ammo = [1500, 1500];
     this.cd = 0;
     this.side = 0;
     this.barrel = 0;
@@ -181,9 +181,9 @@ export class APU {
       ]);
       R.add(new THREE.Mesh(new THREE.TubeGeometry(c, 20, 0.055, 8), MAT.frame));
     };
-    hoop(-0.5, 5.15, 0.72);
-    hoop(0.55, 5.3, 0.74);
-    for (const s of [-1, 1]) link(R, new THREE.Vector3(s * 0.62, 4.95, -0.5), new THREE.Vector3(s * 0.62, 5.08, 0.55), 0.08, MAT.frame);
+    // Yalnızca başın arkasında çember: önde görüşü kapatan demir yok
+    hoop(0.62, 5.3, 0.74);
+    for (const s of [-1, 1]) link(R, new THREE.Vector3(s * 0.72, 4.1, 0.62), new THREE.Vector3(s * 0.72, 4.1, -0.15), 0.07, MAT.frame);
 
     // Koltuk, kumanda kolları, ekranlar
     add(R, B(0.6, 0.12, 0.5), MAT.black, 0, 3.72, 0.25);
@@ -203,37 +203,45 @@ export class APU {
     this.pilot.visible = false;
     R.add(this.pilot);
 
-    // Sırttan yükselen eklemli kollar → sarkan topçular
+    // Sırttan yükselen eklemli kollar → sarkan topçular.
+    // Her kol omzundaki döner yatakla bütün olarak savrulur (insan kolu gibi).
     this.pods = [];
+    this.arms = [];
     for (const s of [-1, 1]) {
       const S = new THREE.Vector3(s * 0.55, 4.75, 0.72);
-      const A = new THREE.Vector3(s * 0.95, 6.05, 0.55);
-      const E = new THREE.Vector3(s * 2.15, 6.15, 0.35);
-      const W = new THREE.Vector3(s * 2.2, 4.75, 0.2);
-      joint(R, S, 0.24, MAT.dark);
-      link(R, S, A, 0.24, MAT.dark);
-      link(R, S.clone().add(_v.set(0, 0, 0.18)), A.clone().add(_v.set(0, 0, 0.18)), 0.1, MAT.frame);
-      joint(R, A, 0.26, MAT.frame, 'z');
-      link(R, A, E, 0.26, MAT.dark);
-      link(R, A.clone().add(_v.set(0, 0.2, 0)), E.clone().add(_v.set(0, 0.2, 0)), 0.1, MAT.frame);
-      for (let k = 1; k < 4; k++) joint(R, A.clone().lerp(E, k / 4).add(_v.set(0, 0, 0.14)), 0.1, MAT.black, 'z');
-      joint(R, E, 0.28, MAT.frame, 'z');
-      link(R, E, W, 0.3, MAT.dark);
-      add(R, B(0.5, 0.75, 0.42), MAT.frame, W.x, (E.y + W.y) / 2 - 0.1, (E.z + W.z) / 2);
+      const arm = new THREE.Group();
+      arm.position.copy(S);
+      R.add(arm);
+      const L = (x, y, z) => new THREE.Vector3(x, y, z).sub(S);   // gövde koordinatı → kol koordinatı
+      const O = new THREE.Vector3();
+      const A = L(s * 0.95, 6.05, 0.55);
+      const E = L(s * 2.15, 6.15, 0.35);
+      const W = L(s * 2.2, 4.75, 0.2);
+      add(R, C(0.34, 0.22, 16), MAT.black, S.x, S.y - 0.2, S.z);
+      joint(arm, O, 0.24, MAT.dark);
+      link(arm, O, A, 0.24, MAT.dark);
+      link(arm, O.clone().add(_v.set(0, 0, 0.18)), A.clone().add(_v.set(0, 0, 0.18)), 0.1, MAT.frame);
+      joint(arm, A, 0.26, MAT.frame, 'z');
+      link(arm, A, E, 0.26, MAT.dark);
+      link(arm, A.clone().add(_v.set(0, 0.2, 0)), E.clone().add(_v.set(0, 0.2, 0)), 0.1, MAT.frame);
+      for (let k = 1; k < 4; k++) joint(arm, A.clone().lerp(E, k / 4).add(_v.set(0, 0, 0.14)), 0.1, MAT.black, 'z');
+      joint(arm, E, 0.28, MAT.frame, 'z');
+      link(arm, E, W, 0.3, MAT.dark);
+      add(arm, B(0.5, 0.75, 0.42), MAT.frame, W.x, (E.y + W.y) / 2 - 0.1, (E.z + W.z) / 2);
       const g = buildGun(s);
       g.pod.position.copy(W);
-      R.add(g.pod);
+      arm.add(g.pod);
       this.pods.push(g);
-      R.add(chain([
-        new THREE.Vector3(s * 2.2, 3.95, 0.4), new THREE.Vector3(s * 2.15, 2.7, 0.75),
-        new THREE.Vector3(s * 1.7, 2.35, 1.15), new THREE.Vector3(s * 1.05, 2.9, 1.0), new THREE.Vector3(s * 0.7, 3.6, 0.8),
+      arm.add(chain([
+        L(s * 2.2, 3.95, 0.4), L(s * 2.15, 2.9, 0.75), L(s * 1.75, 2.6, 1.05), L(s * 1.0, 3.3, 1.0), L(s * 0.6, 4.4, 0.8),
       ], MAT.chain));
+      this.arms.push({ group: arm, side: s, yaw: 0 });
     }
 
     // Farlar
-    for (const x of [-0.45, 0.45]) {
-      add(R, new THREE.BoxGeometry(0.2, 0.12, 0.08), MAT.dark, x, 5.05, -0.52);
-      add(R, new THREE.BoxGeometry(0.16, 0.08, 0.02), MAT.head, x, 5.05, -0.565);
+    for (const x of [-0.82, 0.82]) {
+      add(R, new THREE.BoxGeometry(0.2, 0.12, 0.08), MAT.dark, x, 4.12, -0.6);
+      add(R, new THREE.BoxGeometry(0.16, 0.08, 0.02), MAT.head, x, 4.12, -0.645);
     }
     this.head = new THREE.Vector3(0, 4.55, 0.2);
     this.blob = makeBlob(game.scene, 3.2, 0.85);
@@ -280,7 +288,7 @@ export class APU {
     // Gövde nişana doğru yavaşça döner
     let diff = this.aimYaw - this.bodyYaw;
     diff = Math.atan2(Math.sin(diff), Math.cos(diff));
-    this.bodyYaw += THREE.MathUtils.clamp(diff, -1.5 * dt, 1.5 * dt);
+    this.bodyYaw += THREE.MathUtils.clamp(diff, -0.9 * dt, 0.9 * dt);
 
     const ax = input.axis();
     const sp = ax.z > 0 ? 4.2 : 2.6;
@@ -343,7 +351,7 @@ export class APU {
       this.game.shoot(from, _v, { damage: 30 * dmgMul, splash: aimAt ? 0 : 1.8, splashDamage: 12, from, width: 0.14 });
       this.game.effects.flash(from, this.manned && this.view === 'inside' ? 1.1 : 1.7, 0.04);
       this.recoil[s] = 0.22;
-      this.heat += aimAt ? 1.2 : 1.9;
+      this.heat += aimAt ? 0.35 : 0.45;   // ~20 sn kesintisiz ateş
       if (this.manned) {
         this.game.effects.casing(pod.pod.getWorldPosition(_w).add(_v.set(0, -0.9, 0)), s === 0 ? -1 : 1);
         this.game.addShake(0.12);
@@ -353,7 +361,7 @@ export class APU {
       }
       if (this.heat >= 100) { this.heat = 100; this.overheated = true; sfx.overheat(); }
     }
-    const cool = this.sinceFire > 0.35 ? 30 : 4;
+    const cool = this.sinceFire > 0.35 ? 25 : 3;
     this.heat = Math.max(0, this.heat - cool * dt);
     if (this.overheated && this.heat < 35) this.overheated = false;
   }
@@ -381,10 +389,18 @@ export class APU {
     }
     this.lastSin = s;
     this.root.rotation.y = this.bodyYaw;
-    const rel = THREE.MathUtils.clamp(Math.atan2(Math.sin(this.aimYaw - this.bodyYaw), Math.cos(this.aimYaw - this.bodyYaw)), -0.6, 0.6);
+    // Kollar nişana doğru savrulur: karşı taraftaki kol öne doğru ~57° gelir,
+    // kendi tarafındaki kol az döner (yoksa topçu kokpitin arkasına kaçar);
+    // kalan açıyı bilekteki topçu tamamlar → iki silah da ±90° hedefi görür
+    const rel = THREE.MathUtils.clamp(Math.atan2(Math.sin(this.aimYaw - this.bodyYaw), Math.cos(this.aimYaw - this.bodyYaw)), -1.65, 1.65);
     for (let i = 0; i < 2; i++) {
+      const arm = this.arms[i];
+      const out = THREE.MathUtils.clamp(rel * -arm.side, -1.0, 0.45);
+      arm.yaw = THREE.MathUtils.damp(arm.yaw, out * -arm.side, 9, dt);
+      arm.group.rotation.y = arm.yaw;
+      const wrist = THREE.MathUtils.clamp(rel - arm.yaw, -1.45, 1.45);
       const p = this.pods[i];
-      p.pod.rotation.set(this.aimPitch, rel, 0, 'YXZ');
+      p.pod.rotation.set(this.aimPitch, wrist, 0, 'YXZ');
       this.recoil[i] = THREE.MathUtils.damp(this.recoil[i], 0, 18, dt);
       p.barrels.position.z = this.recoil[i];
     }
