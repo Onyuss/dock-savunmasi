@@ -10,10 +10,16 @@ const _s = new THREE.Vector3();
 const _m = new THREE.Matrix4();
 const Z = new THREE.Vector3(0, 0, 1);
 const ZERO = new THREE.Matrix4().makeScale(0, 0, 0);
+const _smoke = new THREE.Color(0.12, 0.11, 0.1);
+const _ember = new THREE.Color(1, 0.45, 0.12);
 
 // GATHER: delikten çıkıp tavanın altında sürü halinde döner
 // DIVE: salonun ortasına doğru alçalır, SEEK: hedefe gider, ATTACK: hedefi söker
-const DEAD = 0, DIVE = 1, SEEK = 2, ATTACK = 3, GATHER = 4;
+// ROAM: salonun üst kısmında sürü halinde dolaşır
+const DEAD = 0, DIVE = 1, SEEK = 2, ATTACK = 3, GATHER = 4, ROAM = 5;
+const CORPSES = 500;
+const _cq = new THREE.Quaternion();
+const _ce = new THREE.Euler();
 const SCALE = 1.25;
 
 function sentinelGeometry() {
@@ -87,7 +93,20 @@ export class Swarm {
         transformed.x += sin(uTime * 6.0 + tz * 1.7 + ph + position.x * 5.0) * tz * 0.16;
         transformed.y += cos(uTime * 5.0 + tz * 1.5 + ph + position.y * 5.0) * tz * 0.16;`);
     };
-    this.body = new THREE.InstancedMesh(sentinelGeometry(), bodyMat, max);
+    const geo = sentinelGeometry();
+    this.body = new THREE.InstancedMesh(geo, bodyMat, max);
+
+    // Düşen ve yerde biriken enkazlar (ayrı havuz; canlı düşman yuvalarını işgal etmez)
+    this.corpses = new THREE.InstancedMesh(geo, new THREE.MeshStandardMaterial({ color: 0x141210, metalness: 0.9, roughness: 0.42 }), CORPSES);
+    this.corpses.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+    this.corpses.frustumCulled = false;
+    for (let i = 0; i < CORPSES; i++) this.corpses.setMatrixAt(i, ZERO);
+    game.scene.add(this.corpses);
+    this.cData = Array.from({ length: CORPSES }, () => ({
+      state: 0, pos: new THREE.Vector3(), vel: new THREE.Vector3(), q: new THREE.Quaternion(), axis: new THREE.Vector3(), spin: 0, smoke: 0,
+    }));
+    this.cNext = 0;
+    this.cFalling = 0;
     this.eyes = new THREE.InstancedMesh(eyeGeometry(), new THREE.MeshBasicMaterial({ color: new THREE.Color(3.0, 0.45, 0.12) }), max);
     for (const m of [this.body, this.eyes]) {
       m.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
@@ -121,7 +140,7 @@ export class Swarm {
       this.off[j] = _d.x; this.off[j + 1] = _d.y; this.off[j + 2] = _d.z;
       this.hp[i] = 40;
       this.speed[i] = 6 + Math.random() * 3;
-      this.timer[i] = 4 + Math.random() * 6;
+      this.timer[i] = 2.5 + Math.random() * 3;
       this.state[i] = GATHER;
       this.tick[i] = Math.random();
       this.target[i] = null;
@@ -156,6 +175,18 @@ export class Swarm {
         const r = this.home[k + 3];
         _t.set(this.home[k] + Math.cos(a) * r, this.home[k + 1] + Math.sin(time * 1.3 + i) * 2.5, this.home[k + 2] + Math.sin(a) * r);
         sp = 7;
+        this.timer[i] -= dt;
+        if (this.timer[i] <= 0) { this.state[i] = ROAM; this.timer[i] = 8 + Math.random() * 8; }
+      } else if (st === ROAM) {
+        // Üç büyük sürü, kubbenin altında yavaşça salınan yollarda dolaşır
+        const f = i % 3;
+        const cx = Math.sin(time * 0.11 + f * 2.1) * 70;
+        const cy = 48 + Math.sin(time * 0.19 + f) * 10;
+        const cz = -12 + Math.cos(time * 0.09 + f * 1.3) * 42;
+        const a = time * 0.8 * (i % 2 ? 1 : -1) + i * 2.4;
+        const r = 5 + (i % 11);
+        _t.set(cx + Math.cos(a) * r, cy + Math.sin(time * 1.1 + i) * 4 + ((i % 5) - 2) * 2.5, cz + Math.sin(a) * r);
+        sp = 13;
         this.timer[i] -= dt;
         if (this.timer[i] <= 0) this.state[i] = DIVE;
       } else if (st === DIVE) {
@@ -212,6 +243,57 @@ export class Swarm {
     }
     this.body.instanceMatrix.needsUpdate = true;
     this.eyes.instanceMatrix.needsUpdate = true;
+    this.updateCorpses(dt);
+  }
+
+  // Vurulan sentinel: dönerek düşer, yere çarpar, orada kalır
+  addCorpse(i) {
+    const j = i * 3;
+    const c = this.cData[this.cNext];
+    this.cNext = (this.cNext + 1) % CORPSES;
+    if (c.state === 1) this.cFalling--;
+    c.state = 1;
+    c.pos.set(this.pos[j], this.pos[j + 1], this.pos[j + 2]);
+    c.vel.set(this.vel[j] * 0.4, this.vel[j + 1] * 0.3 + 2, this.vel[j + 2] * 0.4);
+    _d.set(this.vel[j], this.vel[j + 1], this.vel[j + 2]).normalize();
+    c.q.setFromUnitVectors(Z, _d.lengthSq() > 0 ? _d : Z);
+    c.axis.set(Math.random() - 0.5, Math.random() - 0.5, Math.random() - 0.5).normalize();
+    c.spin = 2 + Math.random() * 5;
+    c.smoke = 0;
+    this.cFalling++;
+  }
+
+  updateCorpses(dt) {
+    if (this.cFalling <= 0) return;
+    const fx = this.game.effects;
+    for (let k = 0; k < CORPSES; k++) {
+      const c = this.cData[k];
+      if (c.state !== 1) continue;
+      c.vel.y -= 22 * dt;
+      c.pos.addScaledVector(c.vel, dt);
+      _cq.setFromAxisAngle(c.axis, c.spin * dt);
+      c.q.premultiply(_cq);
+      c.smoke -= dt;
+      if (c.smoke <= 0) {
+        c.smoke = 0.06;
+        fx.spawn(c.pos, _t.set((Math.random() - 0.5) * 0.6, 0.8, (Math.random() - 0.5) * 0.6), _smoke, 1.2, -0.05);
+        if (Math.random() < 0.3) fx.spawn(c.pos, _t.set((Math.random() - 0.5) * 3, Math.random() * 2, (Math.random() - 0.5) * 3), _ember, 0.4, 1);
+      }
+      if (c.pos.y <= 0.5) {
+        // Yere çarptı: yana yatmış, rastgele yönde kalır
+        c.pos.y = 0.5;
+        c.state = 2;
+        this.cFalling--;
+        _ce.set((Math.random() - 0.5) * 0.6, Math.random() * Math.PI * 2, (Math.random() - 0.5) * 0.8 + (Math.random() < 0.5 ? 1.2 : -1.2));
+        c.q.setFromEuler(_ce);
+        fx.dust(c.pos, 6);
+        fx.sparks(c.pos, 4, _ember, 4);
+        if (c.pos.distanceTo(this.game.camera.position) < 60) sfx.thud();
+      }
+      _m.compose(c.pos, c.q, _s.set(SCALE, SCALE, SCALE));
+      this.corpses.setMatrixAt(k, _m);
+    }
+    this.corpses.instanceMatrix.needsUpdate = true;
   }
 
   raycast(o, d, maxT, r = 1.3) {
@@ -270,7 +352,8 @@ export class Swarm {
     this.alive--;
     this.body.setMatrixAt(i, ZERO);
     this.eyes.setMatrixAt(i, ZERO);
-    this.game.effects.explosion(_p.set(this.pos[j], this.pos[j + 1], this.pos[j + 2]), 0.6);
+    this.game.effects.explosion(_p.set(this.pos[j], this.pos[j + 1], this.pos[j + 2]), 0.45);
+    this.addCorpse(i);
     sfx.pop();
     this.game.onKill();
     return true;

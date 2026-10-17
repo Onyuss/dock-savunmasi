@@ -1,7 +1,8 @@
 import * as THREE from 'three';
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
+import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { collide, makeBlob } from './world.js';
-import { metalMaterial, pbrMaterial } from './textures.js';
+import { metalMaterial } from './textures.js';
 import { sfx } from './audio.js';
 
 const _v = new THREE.Vector3();
@@ -9,79 +10,114 @@ const _w = new THREE.Vector3();
 const _f = new THREE.Vector3();
 const _r = new THREE.Vector3();
 const _e = new THREE.Euler();
+const _q = new THREE.Quaternion();
+const Z = new THREE.Vector3(0, 0, 1);
 
+// Gri, yıpranmış askeri metal
 const MAT = {
-  frame: pbrMaterial('green_metal_rust', { metalness: 0.7, color: 0xc4ccbe }),
-  dark: metalMaterial({ cols: 1, rows: 1, color: [42, 46, 44], rivets: false, grime: 0.5, rust: 0.2, seed: 12, size: 256 }, { metalness: 0.7 }),
-  stripe: metalMaterial({ cols: 1, rows: 1, color: [96, 100, 88], stripes: true, grime: 0.6, seed: 13, size: 256 }, { metalness: 0.6 }),
-  pilot: new THREE.MeshStandardMaterial({ color: 0x3d4238, roughness: 0.95 }),
+  frame: metalMaterial({ cols: 2, rows: 2, color: [104, 108, 110], grime: 0.6, rust: 0.12, scratches: 1, seed: 41, size: 256, roughness: 0.45 }, { metalness: 0.75, bump: 1.3 }),
+  dark: metalMaterial({ cols: 1, rows: 2, color: [58, 61, 63], grime: 0.5, rust: 0.1, seed: 42, size: 256 }, { metalness: 0.7 }),
+  gun: metalMaterial({ cols: 1, rows: 4, color: [84, 87, 89], grime: 0.7, rivets: false, scratches: 1, seed: 43, size: 256, roughness: 0.4 }, { metalness: 0.8, bump: 1.6 }),
+  black: new THREE.MeshStandardMaterial({ color: 0x18191a, metalness: 0.5, roughness: 0.55 }),
+  chain: new THREE.MeshStandardMaterial({ color: 0x141515, metalness: 0.7, roughness: 0.45 }),
   brass: new THREE.MeshStandardMaterial({ color: 0x9a7438, metalness: 0.9, roughness: 0.35 }),
-  hose: new THREE.MeshStandardMaterial({ color: 0x141614, roughness: 0.6, metalness: 0.1 }),
-  green: new THREE.MeshBasicMaterial({ color: new THREE.Color(0.4, 2.2, 0.8) }),
+  cloth: new THREE.MeshStandardMaterial({ color: 0x3a3631, roughness: 0.95 }),
+  skin: new THREE.MeshStandardMaterial({ color: 0x8a6650, roughness: 0.8 }),
   orange: new THREE.MeshBasicMaterial({ color: new THREE.Color(2.5, 1.0, 0.25) }),
   red: new THREE.MeshBasicMaterial({ color: new THREE.Color(3.0, 0.2, 0.1) }),
   head: new THREE.MeshBasicMaterial({ color: new THREE.Color(3.5, 3.6, 3.2) }),
   screen: new THREE.MeshBasicMaterial({ color: new THREE.Color(0.2, 1.0, 0.45), transparent: true, opacity: 0.85 }),
 };
 
-function add(parent, geo, mat, x, y, z) {
+function add(parent, geo, mat, x, y, z, rx = 0, ry = 0, rz = 0) {
   const m = new THREE.Mesh(geo, mat);
   m.position.set(x, y, z);
+  m.rotation.set(rx, ry, rz);
   parent.add(m);
   return m;
 }
-const B = (w, h, d) => new RoundedBoxGeometry(w, h, d, 2, Math.min(w, h, d) * 0.18);
+const B = (w, h, d) => new RoundedBoxGeometry(w, h, d, 2, Math.min(w, h, d) * 0.16);
+const C = (r, h, seg = 14) => new THREE.CylinderGeometry(r, r, h, seg);
+
+// a → b arasında kalın parça (yerel koordinatlarda)
+function link(parent, a, b, t, mat) {
+  const len = a.distanceTo(b);
+  const m = new THREE.Mesh(B(t, t, len), mat);
+  m.position.copy(a).add(b).multiplyScalar(0.5);
+  m.quaternion.setFromUnitVectors(Z, _v.subVectors(b, a).normalize());
+  parent.add(m);
+  return m;
+}
+function joint(parent, p, r, mat, axis = 'x') {
+  const j = add(parent, C(r, r * 1.3), mat, p.x, p.y, p.z);
+  if (axis === 'x') j.rotation.z = Math.PI / 2;
+  else if (axis === 'z') j.rotation.x = Math.PI / 2;
+  return j;
+}
+
+// Eğri boyunca dizilmiş zincir halkaları (tek geometri, tek çizim)
+function chain(points, mat) {
+  const curve = new THREE.CatmullRomCurve3(points);
+  const n = Math.ceil(curve.getLength() / 0.13);
+  const parts = [];
+  const m = new THREE.Matrix4();
+  for (let i = 0; i < n; i++) {
+    const t = i / n;
+    const p = curve.getPointAt(t);
+    const tan = curve.getTangentAt(t);
+    _q.setFromUnitVectors(Z, tan);
+    const g = new THREE.BoxGeometry(i % 2 ? 0.2 : 0.16, i % 2 ? 0.07 : 0.11, 0.12);
+    m.compose(p, _q, _w.set(1, 1, 1));
+    g.applyMatrix4(m);
+    parts.push(g);
+  }
+  return new THREE.Mesh(mergeGeometries(parts), mat);
+}
 
 function buildLeg(side) {
   const leg = new THREE.Group();
-  leg.position.set(side * 0.72, 2.9, 0);
-  add(leg, B(0.42, 1.4, 0.5), MAT.frame, 0, -0.7, 0);
-  const knee = add(leg, new THREE.CylinderGeometry(0.22, 0.22, 0.56, 12), MAT.dark, 0, -1.4, 0);
-  knee.rotation.z = Math.PI / 2;
-  add(leg, B(0.48, 1.35, 0.55), MAT.frame, 0, -2.1, 0.08);
-  add(leg, B(1.0, 0.28, 1.7), MAT.dark, 0, -2.76, -0.15);
-  const piston = add(leg, new THREE.CylinderGeometry(0.06, 0.06, 1.5, 8), MAT.brass, side * 0.3, -1.3, -0.3);
-  piston.rotation.x = 0.15;
-  add(leg, new THREE.CylinderGeometry(0.11, 0.11, 0.7, 8), MAT.dark, side * 0.3, -0.75, -0.38);
-  add(leg, B(0.5, 0.5, 0.12), MAT.stripe, 0, -0.55, -0.28);
-  const hose = new THREE.CatmullRomCurve3([
-    new THREE.Vector3(-side * 0.15, -0.1, 0.28), new THREE.Vector3(-side * 0.32, -1.2, 0.42), new THREE.Vector3(-side * 0.2, -2.0, 0.36),
-  ]);
-  leg.add(new THREE.Mesh(new THREE.TubeGeometry(hose, 10, 0.045, 6), MAT.hose));
+  leg.position.set(side * 0.88, 2.75, 0.1);
+  add(leg, B(0.78, 1.25, 0.9), MAT.frame, 0, -0.5, -0.12, 0.22);
+  add(leg, B(0.5, 0.5, 0.2), MAT.dark, side * 0.3, -0.45, -0.55, 0.22);
+  joint(leg, new THREE.Vector3(0, -1.15, -0.28), 0.4, MAT.dark);
+  joint(leg, new THREE.Vector3(side * 0.42, -1.15, -0.28), 0.22, MAT.black);
+  add(leg, B(0.72, 1.1, 0.82), MAT.frame, 0, -1.78, -0.12, -0.12);
+  add(leg, B(0.6, 0.35, 0.3), MAT.dark, 0, -1.55, -0.58, -0.12);
+  joint(leg, new THREE.Vector3(0, -2.33, 0.0), 0.26, MAT.black);
+  add(leg, B(1.0, 0.3, 1.25), MAT.dark, 0, -2.6, -0.2);
+  add(leg, B(0.44, 0.28, 0.62), MAT.frame, -0.26, -2.61, -1.0);
+  add(leg, B(0.44, 0.28, 0.62), MAT.frame, 0.26, -2.61, -1.0);
+  add(leg, B(0.62, 0.28, 0.5), MAT.frame, 0, -2.61, 0.6);
+  add(leg, C(0.06, 1.5, 8), MAT.brass, side * 0.33, -1.25, 0.42, -0.15);
+  add(leg, C(0.11, 0.6, 8), MAT.black, side * 0.33, -0.7, 0.36, -0.15);
   return leg;
 }
 
-function buildPod(side) {
+// Kolun ucunda sarkan kutu biçimli döner topçu
+function buildGun(side) {
   const pod = new THREE.Group();
-  pod.position.set(side * 1.45, 4.3, 0);
-  add(pod, B(0.8, 1.1, 1.5), MAT.frame, 0, -0.35, 0.1);
-  add(pod, B(0.5, 0.55, 0.7), MAT.stripe, side * 0.55, -0.2, 0.4);
-  add(pod, B(0.86, 0.3, 0.5), MAT.dark, 0, 0.3, 0.35);
-  add(pod, new THREE.BoxGeometry(0.82, 0.04, 0.04), MAT.green, 0, 0.21, -0.66);
-  add(pod, new THREE.SphereGeometry(0.05, 6, 4), MAT.red, side * 0.42, 0.15, -0.6);
+  add(pod, B(0.42, 0.5, 0.42), MAT.dark, 0, -0.15, 0);
+  add(pod, B(0.66, 0.66, 2.3), MAT.gun, 0, -0.62, -0.55);
+  for (const y of [-0.42, -0.62, -0.82]) {
+    add(pod, B(0.06, 0.1, 1.9), MAT.frame, side * 0.34, y, -0.6);
+    add(pod, B(0.06, 0.1, 1.9), MAT.frame, -side * 0.34, y, -0.6);
+  }
+  add(pod, B(0.5, 0.06, 1.9), MAT.frame, 0, -0.27, -0.6);
+  add(pod, B(0.56, 0.56, 0.3), MAT.dark, 0, -0.62, 0.72);
+  add(pod, new THREE.SphereGeometry(0.05, 6, 4), MAT.red, side * 0.35, -0.3, -1.5);
   const barrels = new THREE.Group();
   pod.add(barrels);
+  add(barrels, B(0.76, 0.76, 0.34), MAT.frame, 0, -0.62, -1.82);
   const muzzles = [];
-  for (const bx of [-0.17, 0.17]) {
-    const b = add(barrels, new THREE.CylinderGeometry(0.09, 0.09, 2.2, 10), MAT.dark, bx, -0.55, -1.6);
-    b.rotation.x = Math.PI / 2;
-    const brake = add(barrels, new THREE.CylinderGeometry(0.14, 0.14, 0.32, 10), MAT.frame, bx, -0.55, -2.7);
-    brake.rotation.x = Math.PI / 2;
-    const ring = add(barrels, new THREE.TorusGeometry(0.1, 0.025, 6, 12), MAT.orange, bx, -0.55, -2.87);
-    ring.rotation.y = 0;
+  for (const [bx, by, r] of [[-side * 0.12, -0.7, 0.17], [side * 0.18, -0.48, 0.09]]) {
+    add(barrels, C(r, 0.42, 14), MAT.black, bx, by, -2.08, Math.PI / 2);
+    add(barrels, new THREE.TorusGeometry(r * 0.75, 0.025, 6, 14), MAT.orange, bx, by, -2.3);
     const mz = new THREE.Object3D();
-    mz.position.set(bx, -0.55, -3.0);
+    mz.position.set(bx, by, -2.4);
     barrels.add(mz);
     muzzles.push(mz);
   }
   return { pod, barrels, muzzles };
-}
-
-function bar(parent, a, b, t = 0.07) {
-  const len = a.distanceTo(b);
-  const m = add(parent, B(t, t, len), MAT.frame, (a.x + b.x) / 2, (a.y + b.y) / 2, (a.z + b.z) / 2);
-  m.lookAt(parent.localToWorld(b.clone()));
-  return m;
 }
 
 // Yürüyen silah kulesi
@@ -99,7 +135,7 @@ export class APU {
     this.maxHp = 1200;
     this.hp = 1200;
     this.alive = true;
-    this.radius = 2.2;
+    this.radius = 2.4;
     this.heat = 0;
     this.overheated = false;
     this.ammoMax = 600;
@@ -115,66 +151,97 @@ export class APU {
     this.recoil = [0, 0];
     this.sinceFire = 10;
     this.fall = 0;
+    const R = this.root;
 
+    // Bacaklar ve kalça
     this.legL = buildLeg(-1);
     this.legR = buildLeg(1);
-    this.root.add(this.legL, this.legR);
-    add(this.root, B(1.8, 0.4, 1.0), MAT.dark, 0, 3.0, 0);
+    R.add(this.legL, this.legR);
+    add(R, B(2.0, 0.55, 1.15), MAT.dark, 0, 2.85, 0.1);
+    joint(R, new THREE.Vector3(0, 2.85, 0.1), 0.3, MAT.black);
 
-    // Kokpit kafesi
-    const cage = new THREE.Group();
-    cage.position.y = 3.2;
-    this.root.add(cage);
-    this.cage = cage;
-    this.root.updateMatrixWorld(true);
-    add(cage, B(1.4, 0.08, 1.1), MAT.dark, 0, 0, 0);
-    add(cage, B(1.36, 1.2, 0.06), MAT.dark, 0, 0.6, 0.5);
-    for (const x of [-0.68, 0.68]) for (const z of [-0.5, 0.5]) add(cage, B(0.07, 1.75, 0.07), MAT.frame, x, 0.875, z);
-    for (const z of [-0.5, 0.5]) add(cage, B(1.36, 0.07, 0.07), MAT.frame, 0, 1.75, z);
-    for (const x of [-0.68, 0.68]) add(cage, B(0.07, 0.07, 1.0), MAT.frame, x, 1.75, 0);
-    add(cage, B(1.36, 0.06, 0.06), MAT.frame, 0, 0.9, -0.5);
-    cage.updateMatrixWorld(true);
-    bar(cage, new THREE.Vector3(-0.68, 1.75, -0.5), new THREE.Vector3(-0.3, 2.0, -0.2));
-    bar(cage, new THREE.Vector3(0.68, 1.75, -0.5), new THREE.Vector3(0.3, 2.0, -0.2));
-    add(cage, B(0.6, 0.07, 0.6), MAT.frame, 0, 2.0, 0.05);
-    add(cage, B(0.6, 0.12, 0.5), MAT.dark, 0, 0.55, 0.2);
-    add(cage, B(0.6, 0.7, 0.1), MAT.dark, 0, 0.9, 0.45);
-    for (const x of [-0.25, 0.25]) {
-      const s = add(cage, new THREE.CylinderGeometry(0.025, 0.025, 0.45, 6), MAT.dark, x, 0.75, -0.12);
-      s.rotation.x = -0.4;
-    }
-    for (const x of [-0.38, 0.38]) {
-      const scr = add(cage, new THREE.PlaneGeometry(0.28, 0.16), MAT.screen, x, 1.15, -0.42);
-      scr.rotation.x = -0.3;
-    }
-    this.pilot = new THREE.Group();
-    add(this.pilot, B(0.42, 0.55, 0.3), MAT.pilot, 0, 0.95, 0.2);
-    add(this.pilot, new THREE.SphereGeometry(0.15, 10, 8), MAT.pilot, 0, 1.4, 0.15);
-    this.pilot.visible = false;
-    cage.add(this.pilot);
-
-    for (const s of [-1, 1]) add(this.root, B(0.4, 0.55, 0.6), MAT.frame, s * 0.95, 4.45, 0.05);
-    const L = buildPod(-1), R = buildPod(1);
-    this.pods = [L, R];
-    this.root.add(L.pod, R.pod);
+    // Kokpit küveti
+    add(R, B(1.55, 0.12, 1.25), MAT.dark, 0, 3.15, 0.05);
+    add(R, B(1.5, 0.8, 0.1), MAT.frame, 0, 3.55, -0.62, -0.25);
     for (const s of [-1, 1]) {
-      const curve = new THREE.CatmullRomCurve3([
-        new THREE.Vector3(s * 0.3, 4.0, 0.6), new THREE.Vector3(s * 0.9, 4.95, 0.55), new THREE.Vector3(s * 1.5, 4.4, 0.45),
+      add(R, B(0.1, 0.95, 1.25), MAT.frame, s * 0.78, 3.6, 0.05);
+      add(R, B(0.55, 0.12, 1.0), MAT.black, s * 1.05, 3.45, 0.0, 0, 0, s * 0.55);
+      add(R, B(0.12, 0.5, 0.9), MAT.black, s * 1.12, 3.75, 0.05, 0, 0, s * -0.35);
+      add(R, B(0.26, 0.5, 0.06), MAT.dark, s * 0.45, 3.42, -0.7, -0.25);
+      for (let k = 0; k < 3; k++) add(R, B(0.22, 0.04, 0.05), MAT.black, s * 0.45, 3.28 + k * 0.13, -0.74, -0.25);
+    }
+    add(R, B(1.5, 1.7, 0.14), MAT.dark, 0, 4.0, 0.64);
+    add(R, B(1.2, 0.5, 0.5), MAT.frame, 0, 4.6, 0.85);
+
+    // Kafes çemberleri
+    const hoop = (z, h, w) => {
+      const c = new THREE.CatmullRomCurve3([
+        new THREE.Vector3(-w, 4.05, z), new THREE.Vector3(-w * 0.9, h - 0.3, z), new THREE.Vector3(0, h, z),
+        new THREE.Vector3(w * 0.9, h - 0.3, z), new THREE.Vector3(w, 4.05, z),
       ]);
-      this.root.add(new THREE.Mesh(new THREE.TubeGeometry(curve, 10, 0.08, 6), MAT.brass));
+      R.add(new THREE.Mesh(new THREE.TubeGeometry(c, 20, 0.055, 8), MAT.frame));
+    };
+    hoop(-0.5, 5.15, 0.72);
+    hoop(0.55, 5.3, 0.74);
+    for (const s of [-1, 1]) link(R, new THREE.Vector3(s * 0.62, 4.95, -0.5), new THREE.Vector3(s * 0.62, 5.08, 0.55), 0.08, MAT.frame);
+
+    // Koltuk, kumanda kolları, ekranlar
+    add(R, B(0.6, 0.12, 0.5), MAT.black, 0, 3.72, 0.25);
+    add(R, B(0.62, 0.85, 0.12), MAT.black, 0, 4.15, 0.5);
+    add(R, B(0.95, 0.12, 0.12), MAT.dark, 0, 3.98, -0.36);
+    for (const s of [-1, 1]) {
+      add(R, B(0.1, 0.4, 0.1), MAT.dark, s * 0.32, 3.82, -0.36);
+      add(R, B(0.08, 0.08, 0.22), MAT.black, s * 0.32, 4.05, -0.42);
+      add(R, new THREE.PlaneGeometry(0.26, 0.15), MAT.screen, s * 0.42, 4.2, -0.52, -0.35);
     }
 
-    for (const x of [-0.45, 0.45]) {
-      add(cage, new THREE.BoxGeometry(0.2, 0.12, 0.08), MAT.dark, x, 1.86, -0.5);
-      add(cage, new THREE.BoxGeometry(0.16, 0.08, 0.02), MAT.head, x, 1.86, -0.545);
+    // Pilot (yalnızca dış kamerada görünür)
+    this.pilot = new THREE.Group();
+    add(this.pilot, B(0.44, 0.55, 0.3), MAT.cloth, 0, 4.05, 0.32);
+    add(this.pilot, new THREE.SphereGeometry(0.14, 12, 10), MAT.skin, 0, 4.5, 0.28);
+    for (const s of [-1, 1]) link(this.pilot, new THREE.Vector3(s * 0.24, 4.25, 0.3), new THREE.Vector3(s * 0.32, 4.05, -0.38), 0.1, MAT.cloth);
+    this.pilot.visible = false;
+    R.add(this.pilot);
+
+    // Sırttan yükselen eklemli kollar → sarkan topçular
+    this.pods = [];
+    for (const s of [-1, 1]) {
+      const S = new THREE.Vector3(s * 0.55, 4.75, 0.72);
+      const A = new THREE.Vector3(s * 0.95, 6.05, 0.55);
+      const E = new THREE.Vector3(s * 2.15, 6.15, 0.35);
+      const W = new THREE.Vector3(s * 2.2, 4.75, 0.2);
+      joint(R, S, 0.24, MAT.dark);
+      link(R, S, A, 0.24, MAT.dark);
+      link(R, S.clone().add(_v.set(0, 0, 0.18)), A.clone().add(_v.set(0, 0, 0.18)), 0.1, MAT.frame);
+      joint(R, A, 0.26, MAT.frame, 'z');
+      link(R, A, E, 0.26, MAT.dark);
+      link(R, A.clone().add(_v.set(0, 0.2, 0)), E.clone().add(_v.set(0, 0.2, 0)), 0.1, MAT.frame);
+      for (let k = 1; k < 4; k++) joint(R, A.clone().lerp(E, k / 4).add(_v.set(0, 0, 0.14)), 0.1, MAT.black, 'z');
+      joint(R, E, 0.28, MAT.frame, 'z');
+      link(R, E, W, 0.3, MAT.dark);
+      add(R, B(0.5, 0.75, 0.42), MAT.frame, W.x, (E.y + W.y) / 2 - 0.1, (E.z + W.z) / 2);
+      const g = buildGun(s);
+      g.pod.position.copy(W);
+      R.add(g.pod);
+      this.pods.push(g);
+      R.add(chain([
+        new THREE.Vector3(s * 2.2, 3.95, 0.4), new THREE.Vector3(s * 2.15, 2.7, 0.75),
+        new THREE.Vector3(s * 1.7, 2.35, 1.15), new THREE.Vector3(s * 1.05, 2.9, 1.0), new THREE.Vector3(s * 0.7, 3.6, 0.8),
+      ], MAT.chain));
     }
-    this.head = new THREE.Vector3(0, 4.6, 0.05);
-    this.blob = makeBlob(game.scene, 2.8, 0.85);
-    game.scene.add(this.root);
+
+    // Farlar
+    for (const x of [-0.45, 0.45]) {
+      add(R, new THREE.BoxGeometry(0.2, 0.12, 0.08), MAT.dark, x, 5.05, -0.52);
+      add(R, new THREE.BoxGeometry(0.16, 0.08, 0.02), MAT.head, x, 5.05, -0.565);
+    }
+    this.head = new THREE.Vector3(0, 4.55, 0.2);
+    this.blob = makeBlob(game.scene, 3.2, 0.85);
+    game.scene.add(R);
   }
 
   get targetable() { return this.alive; }
-  targetPos(out) { return out.set(this.pos.x, this.pos.y + 3.6, this.pos.z); }
+  targetPos(out) { return out.set(this.pos.x, this.pos.y + 3.8, this.pos.z); }
 
   damage(a) {
     if (!this.alive) return;
@@ -188,9 +255,9 @@ export class APU {
     }
   }
 
-  canEnter(p) { return this.alive && !this.manned && _v.set(p.x - this.pos.x, 0, p.z - this.pos.z).length() < 4.2; }
+  canEnter(p) { return this.alive && !this.manned && _v.set(p.x - this.pos.x, 0, p.z - this.pos.z).length() < 4.4; }
   exitPos(out) {
-    return out.set(this.pos.x + Math.cos(this.bodyYaw) * 2.8, 0, this.pos.z - Math.sin(this.bodyYaw) * 2.8);
+    return out.set(this.pos.x + Math.sin(this.bodyYaw) * 3.2, 0, this.pos.z + Math.cos(this.bodyYaw) * 3.2);
   }
 
   onPossess() {
@@ -208,7 +275,7 @@ export class APU {
   update(dt, input) {
     const look = input.look();
     this.aimYaw += look.yaw;
-    this.aimPitch = THREE.MathUtils.clamp(this.aimPitch + look.pitch, -0.5, 0.75);
+    this.aimPitch = THREE.MathUtils.clamp(this.aimPitch + look.pitch, -0.5, 0.9);
 
     // Gövde nişana doğru yavaşça döner
     let diff = this.aimYaw - this.bodyYaw;
@@ -224,7 +291,7 @@ export class APU {
     this.moveAmt = THREE.MathUtils.damp(this.moveAmt, moving ? 1 : 0, 4, dt);
     if (moving) this.pos.addScaledVector(_w.normalize(), sp * dt * this.moveAmt);
     this.pos.y = 0;
-    collide(this.pos, 1.6, this.game.colliders);
+    collide(this.pos, 1.8, this.game.colliders);
 
     this.weapons(dt, input.fire);
   }
@@ -236,7 +303,7 @@ export class APU {
     this.aiT = (this.aiT || 0) - dt;
     if (this.aiT <= 0) {
       this.aiT = 0.5;
-      this.aiTarget = sw.nearest(this.targetPos(_v), 75);
+      this.aiTarget = sw.nearest(this.targetPos(_v), 90);
     }
     let firing = false;
     if (sw.isAlive(this.aiTarget)) {
@@ -244,7 +311,7 @@ export class APU {
       this.targetPos(_v);
       const dx = e.x - _v.x, dy = e.y - _v.y, dz = e.z - _v.z;
       const yaw = Math.atan2(-dx, -dz);
-      const pitch = THREE.MathUtils.clamp(Math.atan2(dy, Math.hypot(dx, dz)), -0.5, 0.75);
+      const pitch = THREE.MathUtils.clamp(Math.atan2(dy, Math.hypot(dx, dz)), -0.5, 0.9);
       const d = Math.atan2(Math.sin(yaw - this.aimYaw), Math.cos(yaw - this.aimYaw));
       this.aimYaw += THREE.MathUtils.clamp(d, -2 * dt, 2 * dt);
       this.aimPitch = THREE.MathUtils.damp(this.aimPitch, pitch, 4, dt);
@@ -274,11 +341,11 @@ export class APU {
       const aim = aimAt ? aimAt.clone() : this.game.aimPoint();
       _v.subVectors(aim, from).normalize();
       this.game.shoot(from, _v, { damage: 30 * dmgMul, splash: aimAt ? 0 : 1.8, splashDamage: 12, from, width: 0.14 });
-      this.game.effects.flash(from, this.manned && this.view === 'inside' ? 1.0 : 1.6, 0.04);
+      this.game.effects.flash(from, this.manned && this.view === 'inside' ? 1.1 : 1.7, 0.04);
       this.recoil[s] = 0.22;
       this.heat += aimAt ? 1.2 : 1.9;
       if (this.manned) {
-        this.game.effects.casing(pod.pod.getWorldPosition(_w), s === 0 ? -1 : 1);
+        this.game.effects.casing(pod.pod.getWorldPosition(_w).add(_v.set(0, -0.9, 0)), s === 0 ? -1 : 1);
         this.game.addShake(0.12);
         sfx.apuGun(s === 0 ? -1 : 1);
       } else if (from.distanceTo(this.game.camera.position) < 45) {
@@ -303,8 +370,8 @@ export class APU {
     const k = this.moveAmt;
     this.phase += dt * 4.2 * k;
     const s = Math.sin(this.phase);
-    this.legL.rotation.x = s * 0.38 * k;
-    this.legR.rotation.x = -s * 0.38 * k;
+    this.legL.rotation.x = s * 0.32 * k;
+    this.legR.rotation.x = -s * 0.32 * k;
     this.root.position.y = Math.abs(s) * 0.12 * k;
     if (k > 0.3 && Math.sign(s) !== Math.sign(this.lastSin)) {
       const foot = (s > 0 ? this.legR : this.legL).getWorldPosition(_w);
@@ -314,7 +381,7 @@ export class APU {
     }
     this.lastSin = s;
     this.root.rotation.y = this.bodyYaw;
-    const rel = THREE.MathUtils.clamp(Math.atan2(Math.sin(this.aimYaw - this.bodyYaw), Math.cos(this.aimYaw - this.bodyYaw)), -0.7, 0.7);
+    const rel = THREE.MathUtils.clamp(Math.atan2(Math.sin(this.aimYaw - this.bodyYaw), Math.cos(this.aimYaw - this.bodyYaw)), -0.6, 0.6);
     for (let i = 0; i < 2; i++) {
       const p = this.pods[i];
       p.pod.rotation.set(this.aimPitch, rel, 0, 'YXZ');
@@ -330,8 +397,8 @@ export class APU {
       cam.rotation.set(this.aimPitch, this.aimYaw, 0, 'YXZ');
     } else {
       _e.set(this.aimPitch * 0.8, this.aimYaw, 0, 'YXZ');
-      _v.set(2.2, 1.2, 9.5).applyEuler(_e);
-      cam.position.set(this.pos.x, 5.2, this.pos.z).add(_v);
+      _v.set(2.6, 1.6, 11).applyEuler(_e);
+      cam.position.set(this.pos.x, 5.6, this.pos.z).add(_v);
       cam.position.y = Math.max(1, cam.position.y);
       cam.rotation.set(this.aimPitch, this.aimYaw, 0, 'YXZ');
     }

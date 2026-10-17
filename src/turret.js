@@ -122,7 +122,7 @@ export class Turret {
     this.aiT = (this.aiT || 0) - dt;
     if (this.aiT <= 0) {
       this.aiT = 0.5;
-      this.aiTarget = sw.nearest(this.targetPos(_v), 90);
+      this.aiTarget = sw.nearest(this.targetPos(_v), 130);
     }
     let firing = false;
     if (sw.isAlive(this.aiTarget)) {

@@ -9,8 +9,12 @@ Three.js ile yazıldı; dahili ekran kartlarında çalışacak şekilde hafif tu
 Ya da bu klasörde:
 
 ```
-python -m http.server 8080
+python devserver.py 8080
 ```
+
+(`devserver.py` dosyaları önbelleksiz sunar; yaptığın her değişiklik tarayıcıya hemen yansır.)
+
+**Yayındaki sürüm:** https://onyuss.github.io/dock-savunmasi/
 
 Three.js `vendor/` klasöründe olduğu için internet gerekmez.
 

@@ -27,7 +27,7 @@ renderer.toneMappingExposure = 1.15;
 
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x060a08);
-scene.fog = new THREE.FogExp2(0x0a120e, 0.0045);
+scene.fog = new THREE.FogExp2(0x0a120e, 0.0032);
 scene.environment = buildEnvironment(renderer);
 scene.environmentIntensity = 0.9;
 // Gerçek bir endüstriyel mekândan çekilmiş HDRI (Poly Haven, CC0): metallere gerçekçi yansıma
@@ -121,7 +121,7 @@ const game = {
   aimPoint() {
     const o = camera.position;
     const d = camera.getWorldDirection(_aimDir);
-    let t = 250;
+    let t = 400;
     const r = this.swarm.raycast(o, d, t);
     if (r) t = r.t;
     if (d.y < 0) t = Math.min(t, -o.y / d.y);
@@ -129,7 +129,7 @@ const game = {
   },
 
   shoot(origin, dir, opt) {
-    let t = 250;
+    let t = 400;
     let hit = -1;
     const r = this.swarm.raycast(origin, dir, t);
     if (r) { t = r.t; hit = r.i; }
@@ -152,7 +152,7 @@ const game = {
     }
     if (opt.splash && (hit >= 0 || floor || opt.airburst)) {
       this.swarm.damageRadius(p, opt.splash, opt.splashDamage, hit);
-      if (opt.airburst && hit < 0 && !floor && t < 250) this.effects.explosion(p, 0.4);
+      if (opt.airburst && hit < 0 && !floor && t < 400) this.effects.explosion(p, 0.4);
     }
     this.effects.tracer(opt.from || origin, p, opt.width);
     return p;
@@ -196,9 +196,9 @@ const _dimSpark = new THREE.Color(0.7, 0.65, 0.5);
 const _v = new THREE.Vector3();
 
 game.swarm = new Swarm(game, 320);
-game.infantry = new Infantry(game, new THREE.Vector3(0, 0, 28));
+game.infantry = new Infantry(game, new THREE.Vector3(0, 0, 36));
 world.apuSpots.forEach((s, i) => game.apus.push(new APU(game, s, i)));
-[[-66, -46, -2.4], [66, -46, 2.4], [-66, 40, -0.8], [66, 40, 0.8]].forEach(([x, z, yaw], i) =>
+[[-90, -62, -2.4], [90, -62, 2.4], [-90, 50, -0.8], [90, 50, 0.8]].forEach(([x, z, yaw], i) =>
   game.turrets.push(new Turret(game, x, z, yaw, i)));
 game.targets.push(game.infantry, ...game.apus, ...game.turrets);
 game.possess(game.infantry);
@@ -211,7 +211,10 @@ const waves = {
       this.timer -= dt;
       if (this.timer <= 0) this.start();
     } else {
-      this.acc += this.rate * dt;
+      // Filmdeki gibi: önce tek tük, sonra gruplar, sonra kesintisiz sürü
+      this.wt += dt;
+      const rate = this.wt < 10 ? 0.6 : this.wt < 22 ? 2.2 : this.rate;
+      this.acc += rate * dt;
       const active = world.breaches.filter((b) => b.active && b.open > 0.6);
       while (this.acc >= 1 && this.toSpawn > 0 && active.length) {
         this.acc -= 1;
@@ -225,10 +228,11 @@ const waves = {
     this.n++;
     this.state = 'wave';
     this.toSpawn = Math.min(400, 30 + this.n * 25);
-    this.rate = 3 + this.n * 1.5;
+    this.rate = 5 + this.n * 2;
     this.acc = 0;
-    const open = Math.min(3, this.n);
-    const order = [1, 0, 2];
+    this.wt = 0;
+    const open = Math.min(4, this.n);
+    const order = [1, 0, 2, 3];
     world.breaches.forEach((b) => (b.active = false));
     for (let k = 0; k < open; k++) world.breaches[order[k]].active = true;
     game.message('DALGA ' + this.n + '\nTavan delindi!', 3);
@@ -340,8 +344,13 @@ if (isTouch) {
 }
 
 // --- Uygulama olarak yükleme (PWA)
-if ('serviceWorker' in navigator && location.protocol !== 'file:') {
+// Geliştirirken (localhost) önbellek eski dosyaları vermesin diye servis çalışanı yalnızca yayında açılır
+const isLocal = ['localhost', '127.0.0.1', '[::1]'].includes(location.hostname);
+if ('serviceWorker' in navigator && location.protocol === 'https:' && !isLocal) {
   navigator.serviceWorker.register('sw.js').catch(() => {});
+} else if ('serviceWorker' in navigator && isLocal && !new URLSearchParams(location.search).has('sw')) {
+  navigator.serviceWorker.getRegistrations().then((rs) => rs.forEach((r) => r.unregister()));
+  if (window.caches) caches.keys().then((ks) => ks.forEach((k) => caches.delete(k)));
 }
 let installEvent = null;
 addEventListener('beforeinstallprompt', (e) => {

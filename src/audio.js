@@ -78,6 +78,11 @@ export const sfx = {
     burst({ freq: 900, type: 'bandpass', q: 1.5, dur: 0.2, vol: 0.35 });
     tone({ freq: 500, to: 120, dur: 0.15, vol: 0.12, type: 'square' });
   },
+  thud() {
+    if (!ctx || !throttle('thud', 0.07)) return;
+    tone({ freq: 95, to: 38, dur: 0.22, vol: 0.35 });
+    burst({ freq: 500, dur: 0.12, vol: 0.25 });
+  },
   hurt() {
     if (!ctx || !throttle('hurt', 0.25)) return;
     tone({ freq: 160, to: 60, dur: 0.2, vol: 0.4, type: 'sawtooth' });
