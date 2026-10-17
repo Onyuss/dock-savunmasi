@@ -105,7 +105,7 @@ class Cockpit {
       const tips = new THREE.InstancedMesh(tip, brass, BELT_N);
       const links = new THREE.InstancedMesh(new THREE.BoxGeometry(0.05, 0.035, 0.07), link, BELT_N);
       for (const m of [shells, tips, links]) { m.frustumCulled = false; G.add(m); }
-      return { s, curve, shells, tips, links, phase: 0, ammo: 2000 };
+      return { s, curve, shells, tips, links, phase: 0, target: 0, ammo: 2000 };
     });
 
     // Kokpit ışığı: monitörün yeşil yansıması + sıcak tavan lambası (yalnız 1. katman)
@@ -124,7 +124,7 @@ class Cockpit {
     const one = new THREE.Vector3(1, 1, 1), up = new THREE.Vector3(0, 1, 0), X = new THREE.Vector3(1, 0, 0);
     for (const b of this.belts) {
       for (let k = 0; k < BELT_N; k++) {
-        const u = ((k + b.phase) / BELT_N) % 1;
+        const u = (((k + b.phase) / BELT_N) % 1 + 1) % 1;
         b.curve.getPointAt(u, p);
         b.curve.getTangentAt(u, t);
         side.crossVectors(t, up).normalize();
@@ -140,12 +140,14 @@ class Cockpit {
 
   feed(i) {
     const b = this.belts[i];
-    b.phase = (b.phase + 1) % BELT_N;
+    b.target += 1;   // bant bir fişek ilerler (görüntü akıcı kayar)
     b.ammo = Math.max(0, b.ammo - 1);
     this.shake = 0.025;
   }
 
   update(dt) {
+    // Fişekler kuyruğa doğru akıcı kayar (tam bir aralık zıplasa aynı görünürdü)
+    for (const b of this.belts) b.phase = THREE.MathUtils.damp(b.phase, b.target, 16, dt);
     this.layout();
     this.shake = Math.max(0, this.shake - dt * 0.4);
     this.group.position.set((Math.random() - 0.5) * this.shake, (Math.random() - 0.5) * this.shake, 0);
@@ -236,7 +238,7 @@ export class HammerGun {
     if (input.hit('KeyV')) this.toggleView();
     if (this.monitor) {
       // Fare imleci gezdirir; kenara (|imleç| > 0.72) gelince top o yöne döner
-      const K = 1.6;
+      const K = 0.55;   // fare → imleç hassasiyeti
       this.cx = THREE.MathUtils.clamp(this.cx - look.yaw * K, -0.97, 0.97);
       this.cy = THREE.MathUtils.clamp(this.cy + look.pitch * K, -0.95, 0.95);
       const ex = Math.sign(this.cx) * Math.max(0, Math.abs(this.cx) - 0.72) / 0.25;

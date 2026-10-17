@@ -1,6 +1,6 @@
 // Servis çalışanı: oyunu çevrimdışı oynanabilir yapar.
 // Strateji: önce ağ (her zaman en güncel dosya), ağ yoksa önbellek.
-const CACHE = 'dock-v10';
+const CACHE = 'dock-v11';
 const CORE = [
   './', 'index.html', 'style.css', 'manifest.webmanifest',
   'src/main.js', 'src/input.js', 'src/touch.js', 'src/audio.js', 'src/effects.js', 'src/world.js',
