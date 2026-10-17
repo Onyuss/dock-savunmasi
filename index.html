@@ -1,0 +1,88 @@
+<!doctype html>
+<html lang="tr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<title>Dock Savunması</title>
+<meta name="theme-color" content="#050a07">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Dock">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icons/icon-192.png">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<link rel="stylesheet" href="style.css">
+<script type="importmap">
+{
+  "imports": {
+    "three": "./vendor/three/build/three.module.js",
+    "three/addons/": "./vendor/three/examples/jsm/"
+  }
+}
+</script>
+</head>
+<body>
+<canvas id="game"></canvas>
+
+<div id="hud">
+  <div id="scope"><div class="reticle"></div></div>
+  <div id="crosshair"></div>
+  <div id="hitmarker"></div>
+  <div id="topbar">
+    <span id="wave">DALGA 0</span>
+    <span id="waveInfo"></span>
+    <span id="enemies"></span>
+  </div>
+  <div id="mode">PİYADE</div>
+  <div id="prompt"></div>
+  <div id="msg"></div>
+  <div id="stats">
+    <div class="row"><span class="lbl">ZIRH</span><div class="bar"><div id="hpFill" class="fill"></div></div><span id="hpTxt" class="val"></span></div>
+    <div class="row" id="heatRow"><span class="lbl">ISI</span><div class="bar"><div id="heatFill" class="fill heat"></div></div><span id="heatTxt" class="val"></span></div>
+    <div class="row"><span class="lbl">MERMİ</span><span id="ammoTxt" class="val wide"></span></div>
+  </div>
+  <div id="fps"></div>
+  <div id="damage"></div>
+</div>
+
+<div id="touch">
+  <div id="joyBase"><div id="joyKnob"></div></div>
+  <button class="tbtn" id="tFire">ATEŞ</button>
+  <button class="tbtn small" id="tAim">DÜRBÜN</button>
+  <button class="tbtn small" id="tUse">BİN</button>
+  <button class="tbtn small" id="tView">KAM</button>
+  <button class="tbtn small" id="tJump">ZIPLA</button>
+  <button class="tbtn small" id="tReload">ŞARJÖR</button>
+  <button class="tbtn tiny" id="tPause">II</button>
+</div>
+
+<div id="overlay">
+  <div class="panel">
+    <p class="eyebrow">FAZ 0 · GRİ KUTU PROTOTİP</p>
+    <h1>DOCK SAVUNMASI</h1>
+    <p class="sub">Sürü tavanı deliyor. Dock’u tut.</p>
+    <div class="controls desktop-only">
+      <div><b>WASD</b> hareket · <b>Shift</b> koş · <b>Space</b> zıpla</div>
+      <div><b>Fare</b> nişan · <b>Sol tık</b> ateş · <b>Sağ tık</b> dürbün · <b>R</b> şarjör</div>
+      <div><b>E</b> APU’ya / kuleye bin · in</div>
+      <div><b>V</b> APU iç / dış kamera</div>
+      <div><b>B</b> parlama efekti aç / kapat · <b>Esc</b> duraklat</div>
+    </div>
+    <div class="controls touch-only">
+      <div><b>Sol başparmak</b> hareket · <b>Sağ yarıda kaydır</b> nişan</div>
+      <div><b>ATEŞ</b> basılı tut · <b>DÜRBÜN</b> aç / kapat</div>
+      <div><b>BİN</b> APU’ya / kuleye bin · in · <b>KAM</b> iç / dış kamera</div>
+    </div>
+    <div class="buttons">
+      <button id="startBtn">BAŞLA</button>
+      <button id="installBtn" class="ghost" hidden>UYGULAMA OLARAK YÜKLE</button>
+    </div>
+    <p class="hint" id="iosHint" hidden>iPhone / iPad: Safari’de <b>Paylaş</b> → <b>Ana Ekrana Ekle</b> ile uygulama olarak yükleyebilirsin.</p>
+    <p class="hint" id="loadHint">Yükleniyor…</p>
+  </div>
+</div>
+
+<script type="module" src="src/main.js"></script>
+</body>
+</html>
