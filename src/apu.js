@@ -336,7 +336,7 @@ export class APU {
     this.sinceFire += dt;
     const canFire = firing && !this.overheated && (this.ammo[0] > 0 || this.ammo[1] > 0);
     if (canFire && this.cd <= 0) {
-      this.cd = aimAt ? 0.2 : 0.055;
+      this.cd = aimAt ? 0.2 : 0.055 * this.game.shop.rate;
       this.sinceFire = 0;
       let s = this.side;
       if (this.ammo[s] <= 0) s = 1 - s;
@@ -348,10 +348,10 @@ export class APU {
       const from = mz.getWorldPosition(new THREE.Vector3());
       const aim = aimAt ? aimAt.clone() : this.game.aimPoint();
       _v.subVectors(aim, from).normalize();
-      this.game.shoot(from, _v, { damage: 30 * dmgMul, splash: aimAt ? 0 : 1.8, splashDamage: 12, from, width: 0.14 });
+      this.game.shoot(from, _v, { damage: 30 * dmgMul, splash: aimAt ? 0 : 1.8, splashDamage: 12, from, width: 0.14, player: !aimAt });
       this.game.effects.flash(from, this.manned && this.view === 'inside' ? 1.1 : 1.7, 0.04);
       this.recoil[s] = 0.22;
-      this.heat += aimAt ? 0.35 : 0.45;   // ~20 sn kesintisiz ateş
+      this.heat += aimAt ? 0.35 : 0.45 * this.game.shop.heat;   // ~20 sn kesintisiz ateş
       if (this.manned) {
         this.game.effects.casing(pod.pod.getWorldPosition(_w).add(_v.set(0, -0.9, 0)), s === 0 ? -1 : 1);
         this.game.addShake(0.12);

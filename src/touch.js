@@ -88,6 +88,7 @@ export function setupTouch(input, { onPause }) {
   tap('tView', 'KeyV');
   tap('tJump', 'Space');
   tap('tReload', 'KeyR');
+  tap('tRocket', 'KeyQ');
   hold('tPause', () => {
     input.fire = false;
     input.aim = false;

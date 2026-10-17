@@ -111,7 +111,7 @@ export class Infantry {
     }
 
     if (input.fire && this.cd <= 0 && this.ammo > 0 && this.reload <= 0) {
-      this.cd = 0.09;
+      this.cd = 0.09 * this.game.shop.rate;
       this.ammo--;
       const cam = this.game.camera;
       cam.getWorldDirection(_d);
@@ -119,7 +119,7 @@ export class Infantry {
       _d.y += (Math.random() - 0.5) * 0.012;
       _d.normalize();
       const from = this.muzzle.getWorldPosition(new THREE.Vector3());
-      this.game.shoot(cam.position, _d, { damage: 12, from, width: 0.035 });
+      this.game.shoot(cam.position, _d, { damage: 12, from, width: 0.035, player: true });
       this.game.effects.flash(from, 0.45, 0.035);
       this.pitch += 0.005;
       this.gun.position.z += 0.05;

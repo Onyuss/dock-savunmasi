@@ -15,6 +15,10 @@ import { APU } from './apu.js';
 import { Turret } from './turret.js';
 import { Swarm } from './enemies.js';
 import { isTouch, setupTouch, enterFullscreen } from './touch.js';
+import { Shop } from './shop.js';
+import { Rockets } from './rockets.js';
+import { HammerLevel } from './hammer.js';
+import { Campaign } from './campaign.js';
 
 // --- Görüntüleyici (dahili ekran kartları için hafif ayarlar)
 const canvas = document.getElementById('game');
@@ -49,10 +53,10 @@ scene.add(camera);
 
 // Son işleme: parlama → ton eşleme → kenar yumuşatma → sinematik renk, vinyet, gren
 const GradeShader = {
-  uniforms: { tDiffuse: { value: null }, uTime: { value: 0 }, uRes: { value: new THREE.Vector2(innerWidth, innerHeight) }, uHurt: { value: 0 } },
+  uniforms: { tDiffuse: { value: null }, uTime: { value: 0 }, uRes: { value: new THREE.Vector2(innerWidth, innerHeight) }, uHurt: { value: 0 }, uFlash: { value: 0 } },
   vertexShader: 'varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }',
   fragmentShader: `
-    uniform sampler2D tDiffuse; uniform float uTime; uniform vec2 uRes; uniform float uHurt;
+    uniform sampler2D tDiffuse; uniform float uTime; uniform vec2 uRes; uniform float uHurt; uniform float uFlash;
     varying vec2 vUv;
     void main() {
       vec2 c = vUv - 0.5;
@@ -67,6 +71,7 @@ const GradeShader = {
       col = mix(col, col * vec3(1.4, 0.5, 0.45), uHurt * smoothstep(0.05, 0.3, d));
       float n = fract(sin(dot(vUv * uRes + fract(uTime) * 91.7, vec2(12.9898, 78.233))) * 43758.5453);
       col += (n - 0.5) * 0.04;
+      col = mix(col, vec3(0.85, 0.95, 1.0), clamp(uFlash, 0.0, 1.0));   // EMP beyaz flaş
       gl_FragColor = vec4(max(col, 0.0), 1.0);
     }`,
 };
@@ -112,6 +117,9 @@ const game = {
   hurtT: 0,
   respawnT: 0,
   msgT: 0,
+  flashT: 0,
+  lives: 3,
+  defensesDown: false,
 
   addShake(a) { this.shake = Math.min(1, this.shake + a); },
   hurt() { this.hurtT = 0.35; sfx.hurt(); },
@@ -131,8 +139,21 @@ const game = {
   shoot(origin, dir, opt) {
     let t = 400;
     let hit = -1;
+    const mul = opt.player ? this.shop.dmg : 1;
+    if (opt.player) this.rockets.addShot();
     const r = this.swarm.raycast(origin, dir, t);
     if (r) { t = r.t; hit = r.i; }
+    // Finalde kapının kilidi de vurulabilir
+    if (campaign.phase === 'final') {
+      const lt = world.gate.rayHit(origin, dir, t);
+      if (lt !== null) {
+        t = lt;
+        hit = -1;
+        world.gate.damage(opt.damage * mul);
+        this.effects.sparks(_shotPt.copy(origin).addScaledVector(dir, t), 6);
+        showHit();
+      }
+    }
     if (opt.airburst && hit < 0) {
       const near = this.swarm.nearMiss(origin, dir, t, 2.2);
       if (near !== null) t = near;
@@ -144,14 +165,14 @@ const game = {
     }
     const p = _shotPt.copy(origin).addScaledVector(dir, t);
     if (hit >= 0) {
-      this.swarm.damage(hit, opt.damage);
+      this.swarm.damage(hit, opt.damage * mul, opt.player);
       this.effects.sparks(p, 5);
       showHit();
     } else if (floor) {
       this.effects.sparks(p, 3, _dimSpark, 4);
     }
     if (opt.splash && (hit >= 0 || floor || opt.airburst)) {
-      this.swarm.damageRadius(p, opt.splash, opt.splashDamage, hit);
+      this.swarm.damageRadius(p, opt.splash, opt.splashDamage * mul, hit, opt.player);
       if (opt.airburst && hit < 0 && !floor && t < 400) this.effects.explosion(p, 0.4);
     }
     this.effects.tracer(opt.from || origin, p, opt.width);
@@ -168,11 +189,46 @@ const game = {
     sfx.enter();
   },
 
-  onKill() { this.kills++; },
+  onKill(byPlayer) {
+    this.kills++;
+    this.shop.earn(byPlayer ? 15 : 5);
+  },
+
+  // Roket: atılan yer silahın ağzı ya da kameranın biraz önü
+  fireRocket(from) {
+    if (!from) from = _v.copy(camera.position).add(camera.getWorldDirection(_aimDir).multiplyScalar(2)).add(_aimDir.set(0, -0.4, 0)).clone();
+    if (!this.rockets.fire(from, this.aimPoint().clone())) {
+      if (!this.rockets.ready) this.message('Roket doluyor', 0.8);
+    }
+  },
+  gateLockHit(p, r) {
+    return campaign.phase === 'final' && world.gate.lockAlive && p.distanceTo(world.gate.lockPos) < r;
+  },
+  damageGateLock(p, r, amount) {
+    if (campaign.phase === 'final' && world.gate.lockAlive && p.distanceTo(world.gate.lockPos) < r) world.gate.damage(amount);
+  },
+
+  reviveApu(a) {
+    if (!a) return;
+    a.alive = true;
+    a.hp = a.maxHp;
+    a.fall = 0;
+    a.root.rotation.z = 0;
+    a.root.position.y = 0;
+    a.ammo = [a.ammoMax, a.ammoMax];
+    this.defensesDown = false;
+  },
 
   onInfantryDown() {
-    this.respawnT = 5;
-    this.message('YARALANDIN\nDepoda yeniden doğacaksın…', 5);
+    const defenses = [...this.apus, ...this.turrets].some((v) => v.alive);
+    if (this.lives > 0 && defenses) {
+      this.lives--;
+      this.respawnT = 5;
+      this.message('YARALANDIN\nKalan can: ' + this.lives + ' · depoda yeniden doğacaksın', 5);
+    } else {
+      this.respawnT = Infinity;
+      setTimeout(() => campaign.gameOver('DOCK DÜŞTÜ', defenses ? 'Canların tükendi.' : 'APU’lar ve kuleler yok edildi, son asker de düştü.'), 2500);
+    }
   },
 
   onVehicleDestroyed(v) {
@@ -203,56 +259,73 @@ world.apuSpots.forEach((s, i) => game.apus.push(new APU(game, s, i)));
 game.targets.push(game.infantry, ...game.apus, ...game.turrets);
 game.possess(game.infantry);
 
-// --- Dalgalar
-const waves = {
-  n: 0, state: 'prep', timer: 20, toSpawn: 0, rate: 0, acc: 0,
-  update(dt) {
-    if (this.state === 'prep') {
-      this.timer -= dt;
-      if (this.timer <= 0) this.start();
-    } else {
-      // Filmdeki gibi: önce tek tük, sonra gruplar, sonra kesintisiz sürü
-      this.wt += dt;
-      const rate = this.wt < 10 ? 0.6 : this.wt < 22 ? 2.2 : this.rate;
-      this.acc += rate * dt;
-      const active = world.breaches.filter((b) => b.active && b.open > 0.6);
-      while (this.acc >= 1 && this.toSpawn > 0 && active.length) {
-        this.acc -= 1;
-        if (!game.swarm.spawn(active[(Math.random() * active.length) | 0])) break;
-        this.toSpawn--;
-      }
-      if (this.toSpawn <= 0 && game.swarm.alive === 0) this.clear();
-    }
-  },
-  start() {
-    this.n++;
-    this.state = 'wave';
-    this.toSpawn = Math.min(400, 30 + this.n * 25);
-    this.rate = 5 + this.n * 2;
-    this.acc = 0;
-    this.wt = 0;
-    const open = Math.min(4, this.n);
-    const order = [1, 0, 2, 3];
-    world.breaches.forEach((b) => (b.active = false));
-    for (let k = 0; k < open; k++) world.breaches[order[k]].active = true;
-    game.message('DALGA ' + this.n + '\nTavan delindi!', 3);
-    sfx.drill();
-  },
-  clear() {
-    this.state = 'prep';
-    this.timer = 15;
-    world.breaches.forEach((b) => (b.active = false));
-    for (const a of game.apus) if (a.alive) { a.ammo = [a.ammoMax, a.ammoMax]; a.hp = Math.min(a.maxHp, a.hp + 250); }
-    for (const t of game.turrets) if (t.alive) t.hp = Math.min(t.maxHp, t.hp + 200);
-    game.message('DALGA ' + this.n + ' TEMİZLENDİ\nMühimmat yenilendi', 3);
+game.shop = new Shop(game);
+game.rockets = new Rockets(game);
+const hammer = new HammerLevel(game);
+
+// --- Ekran geçişleri ve bitiş ekranı
+const ui = {
+  fade(on) { $('fade').classList.toggle('on', on); },
+  end(win, title, text) {
+    if (win) unlockChapter(4);
+    $('endTitle').textContent = title;
+    $('endTitle').className = win ? 'win' : 'lose';
+    $('endText').textContent = text;
+    const m = Math.floor(game.time / 60), s = Math.floor(game.time % 60);
+    $('endStats').textContent = `Leş ${game.kills} · Kredi ${game.shop.credits} · Süre ${m}:${String(s).padStart(2, '0')}`;
+    $('end').classList.add('on');
+    document.body.classList.remove('playing');
+    input.touchActive = false;
+    if (document.pointerLockElement) document.exitPointerLock();
   },
 };
+$('againBtn').addEventListener('click', () => location.reload());
+
+const campaign = new Campaign(game, world, hammer, ui);
+game.campaign = campaign;
+
+// --- Bölümler: ulaşılan bölümlerin kilidi açılır, menüden doğrudan başlanabilir
+function unlocked() { try { return +localStorage.getItem('dock.chapter') || 1; } catch { return 1; } }
+function unlockChapter(n) { try { if (n > unlocked()) localStorage.setItem('dock.chapter', String(n)); } catch { /* gizli sekme */ } }
+let startChapter = 1;
+function renderChapters() {
+  const u = unlocked();
+  document.querySelectorAll('.chapter').forEach((b) => {
+    const n = +b.dataset.ch;
+    b.disabled = n > u;
+    b.classList.toggle('sel', n === startChapter);
+  });
+}
+document.querySelectorAll('.chapter').forEach((b) => b.addEventListener('click', () => {
+  if (b.disabled || game.time > 0) return;
+  startChapter = +b.dataset.ch;
+  renderChapters();
+}));
+renderChapters();
+function beginChapter(n) {
+  if (n === 2) {
+    game.shop.earn(400);
+    campaign.n = 4;
+    campaign.phase = 'hammer';
+    campaign.startHammer();
+  } else if (n === 3) {
+    game.shop.earn(800);
+    campaign.n = 4;
+    campaign.backToDock();
+  }
+}
+const _origStartHammer = campaign.startHammer.bind(campaign);
+campaign.startHammer = () => { unlockChapter(2); _origStartHammer(); };
+const _origBack = campaign.backToDock.bind(campaign);
+campaign.backToDock = () => { unlockChapter(3); _origBack(); };
 
 // --- Etkileşim (bin / in / kamera)
 function interactions() {
   const p = game.pawn;
   let prompt = '';
-  if (p === game.infantry && p.alive) {
+  if (p.kind === 'hammer') {
+    // Hammer topçusu koltuktan inemez
+  } else if (p === game.infantry && p.alive) {
     const near = [...game.apus, ...game.turrets].find((v) => v.canEnter(p.pos));
     if (near) {
       prompt = (isTouch ? 'BİN — ' : 'E — ') + near.label + ' (' + (near.kind === 'apu' ? 'APU' : 'kule') + ') bin';
@@ -289,9 +362,16 @@ function setText(id, text) {
 function updateHud(dt) {
   const p = game.pawn;
   setText('mode', p.label + (p.kind === 'apu' ? (p.view === 'inside' ? ' · KOKPİT' : ' · DIŞ KAMERA') : ''));
-  setText('wave', 'DALGA ' + waves.n);
-  setText('waveInfo', waves.state === 'prep' ? 'Hazırlık ' + Math.ceil(waves.timer) + ' sn' : 'Sürü saldırıyor');
-  setText('enemies', 'Düşman ' + (game.swarm.alive + (waves.state === 'wave' ? waves.toSpawn : 0)) + ' · Leş ' + game.kills);
+  const h = campaign.hud();
+  setText('wave', h.wave);
+  setText('waveInfo', h.info);
+  setText('enemies', 'Düşman ' + (h.enemies === Infinity ? '∞' : h.enemies) + ' · Leş ' + game.kills);
+  setText('objective', h.objective ? '▸ ' + h.objective : '');
+  setText('livesTxt', p.kind === 'hammer' ? '—' : '♥'.repeat(Math.max(0, game.lives)) || '0');
+  const rk = game.rockets;
+  $('rocketFill').style.width = (rk.progress * 100).toFixed(0) + '%';
+  $('rocketFill').className = 'fill rocket' + (rk.ready ? ' ready' : '');
+  setText('rocketTxt', rk.ready ? (isTouch ? 'HAZIR' : 'HAZIR · Q') : rk.charge + '/' + game.shop.rocketEvery);
   const hp = Math.max(0, p.hp / p.maxHp);
   $('hpFill').style.width = (hp * 100).toFixed(1) + '%';
   setText('hpTxt', Math.ceil(p.hp) + '');
@@ -305,6 +385,7 @@ function updateHud(dt) {
   setText('ammoTxt', p.kind === 'infantry'
     ? (p.reload > 0 ? 'Şarjör değişiyor…' : p.ammo + ' / ∞')
     : p.kind === 'apu' ? 'SOL ' + p.ammo[0] + ' · SAĞ ' + p.ammo[1] : 'Sınırsız');
+  setText('hpLbl', p.kind === 'hammer' ? 'GÖVDE' : 'ZIRH');
   hitT -= dt;
   $('hitmarker').className = hitT > 0 ? 'on' : '';
   game.hurtT -= dt;
@@ -374,7 +455,8 @@ const testMode = new URLSearchParams(location.search).has('test');
 if (testMode) {
   overlay.classList.add('hidden');
   window.game = game;
-  window.waves = waves;
+  window.campaign = campaign;
+  window.hammer = hammer;
   if (isTouch) { input.touchActive = true; document.body.classList.add('playing'); }
 }
 
@@ -383,11 +465,17 @@ let fpsAcc = 0, fpsN = 0, slowT = 0;
 function frame() {
   requestAnimationFrame(frame);
   const dt = Math.min(clock.getDelta(), 0.05);
-  const running = input.locked || input.touchActive || testMode;
+  const running = (input.locked || input.touchActive || testMode) && campaign.phase !== 'end';
 
   if (running) {
+    if (game.time === 0 && startChapter > 1) beginChapter(startChapter);
     game.time += dt;
     if (input.hit('KeyB')) bloomOn = !bloomOn;
+    if (input.hit('KeyQ') && game.pawn.kind !== 'hammer' && game.pawn.alive !== false) game.fireRocket();
+    if (!game.defensesDown && campaign.phase !== 'hammer' && ![...game.apus, ...game.turrets].some((v) => v.alive)) {
+      game.defensesDown = true;
+      game.message('SAVUNMA ÇÖKTÜ\nArtık yeniden doğamazsın!', 4);
+    }
     const p = game.pawn;
     if (p === game.infantry && !p.alive) {
       input.look();
@@ -403,17 +491,21 @@ function frame() {
       p.update(dt, input);
     }
     interactions();
-    for (const a of game.apus) { a.ai(dt); a.animate(dt); }
-    for (const t of game.turrets) { t.ai(dt); t.animate(dt); }
+    if (campaign.phase !== 'hammer') {
+      for (const a of game.apus) { a.ai(dt); a.animate(dt); }
+      for (const t of game.turrets) { t.ai(dt); t.animate(dt); }
+    }
     game.swarm.update(dt, game.time);
-    waves.update(dt);
+    campaign.update(dt, input);
+    game.rockets.update(dt);
     world.update(dt, game.time);
     game.effects.update(dt);
     updateHud(dt);
   }
+  game.flashT = Math.max(0, game.flashT - dt);
 
   // Dürbün (sağ tık)
-  const zoomFov = { infantry: 30, apu: 36, turret: 24 }[game.pawn.kind];
+  const zoomFov = { infantry: 30, apu: 36, turret: 24, hammer: 30 }[game.pawn.kind] || 30;
   const aiming = running && input.aim && !(game.pawn === game.infantry && !game.infantry.alive);
   camera.fov = THREE.MathUtils.damp(camera.fov, aiming ? zoomFov : 75, 12, dt);
   camera.updateProjectionMatrix();
@@ -436,6 +528,7 @@ function frame() {
   bloom.enabled = bloomOn;
   grade.uniforms.uTime.value = game.time;
   grade.uniforms.uHurt.value = Math.max(0, game.hurtT) * 2;
+  grade.uniforms.uFlash.value = Math.min(1, game.flashT * 1.2);
   composer.render();
   input.endFrame();
 

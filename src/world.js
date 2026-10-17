@@ -289,11 +289,63 @@ export function buildWorld(scene) {
     for (let z = zc - 9; z <= zc + 9; z += 4.5) colliders.push({ x, z, r: 4.6 });
   }
 
-  // --- Doğu kapısı
-  box(1, 20, 26, M.hull, 109, 10, 42);
-  box(1.2, 0.3, 27, M.blue, 108.8, 20.1, 42);
-  box(1.2, 20, 0.3, M.blue, 108.8, 10, 29);
-  box(1.2, 20, 0.3, M.blue, 108.8, 10, 55);
+  // --- Doğu kapısı: finalde kilidi vurulup açılır, Hammer buradan girer
+  const door = box(1.2, 20, 26, M.hull, 109, 10, 42);
+  box(1.4, 0.3, 27, M.blue, 108.7, 20.1, 42);
+  box(1.4, 20, 0.3, M.blue, 108.7, 10, 29);
+  box(1.4, 20, 0.3, M.blue, 108.7, 10, 55);
+  for (let k = 0; k < 4; k++) box(1.3, 0.5, 26, M.dark, 108.9, 3 + k * 4.5, 42);
+  // Kapının arkasındaki geçiş koridoru (Hammer buradan gelir)
+  const corridorMat = M.wall.clone();
+  corridorMat.side = THREE.BackSide;
+  box(160, 22, 28, corridorMat, 190, 11, 42);
+  for (let x = 120; x < 270; x += 12) {
+    box(0.6, 0.3, 26, M.greenDim, x, 21.6, 42);
+    box(8, 0.12, 0.25, M.green, x, 0.1, 30);
+    box(8, 0.12, 0.25, M.green, x, 0.1, 54);
+  }
+  const lockMat = new THREE.MeshBasicMaterial({ color: new THREE.Color(2.6, 0.5, 0.15) });
+  const lock = new THREE.Group();
+  const lockBody = new THREE.Mesh(new THREE.BoxGeometry(1.6, 2.6, 2.6), M.hull);
+  const lockGlow = new THREE.Mesh(new THREE.BoxGeometry(1.7, 0.5, 2.7), lockMat);
+  const lockRing = new THREE.Mesh(new THREE.TorusGeometry(1.3, 0.12, 6, 20), lockMat);
+  lockRing.rotation.y = Math.PI / 2;
+  lockRing.position.x = -0.9;
+  lock.add(lockBody, lockGlow, lockRing);
+  lock.position.set(107.6, 8, 42);
+  scene.add(lock);
+  const gate = {
+    lockPos: lock.position, lockHp: 450, lockMax: 450, lockAlive: true, opening: 0, isOpen: false,
+    // Kilide isabet testi (ışın)
+    rayHit(o, d, maxT) {
+      if (!this.lockAlive) return null;
+      const ox = this.lockPos.x - o.x, oy = this.lockPos.y - o.y, oz = this.lockPos.z - o.z;
+      const t = ox * d.x + oy * d.y + oz * d.z;
+      if (t < 0 || t > maxT) return null;
+      const d2 = ox * ox + oy * oy + oz * oz - t * t;
+      return d2 < 2.2 * 2.2 ? t - Math.sqrt(2.2 * 2.2 - d2) : null;
+    },
+    damage(a) {
+      if (!this.lockAlive) return false;
+      this.lockHp -= a;
+      lockGlow.material.color.setRGB(2.6, 0.5 + Math.random(), 0.15);
+      if (this.lockHp <= 0) {
+        this.lockHp = 0;
+        this.lockAlive = false;
+        lock.visible = false;
+        return true;
+      }
+      return false;
+    },
+    update(dt, time) {
+      if (this.lockAlive) lockMat.color.setRGB(1.5 + Math.sin(time * 6) * 1.1, 0.4, 0.12);
+      if (!this.lockAlive && this.opening < 1) {
+        this.opening = Math.min(1, this.opening + dt / 6);
+        door.position.y = 10 + this.opening * 19;
+        if (this.opening >= 1) this.isOpen = true;
+      }
+    },
+  };
 
   // --- Delme noktaları (kubbenin yüksek kısımlarında)
   const breaches = [[-55, -42], [0, -62], [58, -28], [-18, -8]].map(([x, z]) => {
@@ -340,6 +392,7 @@ export function buildWorld(scene) {
   scene.add(dust);
 
   const update = (dt, time) => {
+    gate.update(dt, time);
     for (const b of breaches) {
       b.open = THREE.MathUtils.damp(b.open, b.active ? 1 : 0, 1.5, dt);
       b.drill.position.y = b.homeY - b.open * 14;
@@ -359,7 +412,7 @@ export function buildWorld(scene) {
     dGeo.attributes.position.needsUpdate = true;
   };
 
-  return { colliders, apuSpots, depotPos, breaches, update };
+  return { colliders, apuSpots, depotPos, breaches, gate, update };
 }
 
 // Daire çarpıştırıcılardan ve salon sınırından itme

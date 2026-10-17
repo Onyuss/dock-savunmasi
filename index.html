@@ -33,14 +33,23 @@
     <span id="wave">DALGA 0</span>
     <span id="waveInfo"></span>
     <span id="enemies"></span>
+    <span id="credits">◆ 0</span>
   </div>
+  <div id="objective"></div>
   <div id="mode">PİYADE</div>
   <div id="prompt"></div>
   <div id="msg"></div>
   <div id="stats">
-    <div class="row"><span class="lbl">ZIRH</span><div class="bar"><div id="hpFill" class="fill"></div></div><span id="hpTxt" class="val"></span></div>
+    <div class="row"><span class="lbl" id="hpLbl">ZIRH</span><div class="bar"><div id="hpFill" class="fill"></div></div><span id="hpTxt" class="val"></span></div>
     <div class="row" id="heatRow"><span class="lbl">ISI</span><div class="bar"><div id="heatFill" class="fill heat"></div></div><span id="heatTxt" class="val"></span></div>
+    <div class="row"><span class="lbl">ROKET</span><div class="bar"><div id="rocketFill" class="fill rocket"></div></div><span id="rocketTxt" class="val"></span></div>
     <div class="row"><span class="lbl">MERMİ</span><span id="ammoTxt" class="val wide"></span></div>
+    <div class="row"><span class="lbl">CAN</span><span id="livesTxt" class="val wide lives"></span></div>
+  </div>
+  <div id="shop">
+    <div class="shop-head"><span>DÜKKÂN</span><span>◆ <b id="shopCredits">0</b></span></div>
+    <div id="shopList"></div>
+    <button id="shopReady">HAZIRIM <span class="desktop-only">(Enter)</span></button>
   </div>
   <div id="fps"></div>
   <div id="damage"></div>
@@ -54,24 +63,40 @@
   <button class="tbtn small" id="tView">KAM</button>
   <button class="tbtn small" id="tJump">ZIPLA</button>
   <button class="tbtn small" id="tReload">ŞARJÖR</button>
+  <button class="tbtn small" id="tRocket">ROKET</button>
   <button class="tbtn tiny" id="tPause">II</button>
+</div>
+
+<div id="fade"></div>
+
+<div id="end">
+  <div class="panel">
+    <h1 id="endTitle">ZION KURTARILDI</h1>
+    <p class="sub" id="endText"></p>
+    <p class="hint" id="endStats"></p>
+    <div class="buttons"><button id="againBtn">TEKRAR OYNA</button></div>
+  </div>
 </div>
 
 <div id="overlay">
   <div class="panel">
-    <p class="eyebrow">FAZ 0 · GRİ KUTU PROTOTİP</p>
+    <p class="eyebrow">MATRIX’TEN ESİNLENEN HAYRAN PROJESİ</p>
     <h1>DOCK SAVUNMASI</h1>
-    <p class="sub">Sürü tavanı deliyor. Dock’u tut.</p>
+    <p class="sub">Sürü tavanı deliyor. Hammer gelene kadar Dock’u tut.</p>
+    <div class="chapters">
+      <button class="chapter" data-ch="1"><b>1</b> Dock Savunması</button>
+      <button class="chapter" data-ch="2"><b>2</b> Hammer</button>
+      <button class="chapter" data-ch="3"><b>3</b> Kapı</button>
+    </div>
     <div class="controls desktop-only">
       <div><b>WASD</b> hareket · <b>Shift</b> koş · <b>Space</b> zıpla</div>
-      <div><b>Fare</b> nişan · <b>Sol tık</b> ateş · <b>Sağ tık</b> dürbün · <b>R</b> şarjör</div>
-      <div><b>E</b> APU’ya / kuleye bin · in</div>
-      <div><b>V</b> APU iç / dış kamera</div>
-      <div><b>B</b> parlama efekti aç / kapat · <b>Esc</b> duraklat</div>
+      <div><b>Fare</b> nişan · <b>Sol tık</b> ateş · <b>Sağ tık</b> dürbün · <b>R</b> şarjör · <b>Q</b> roket</div>
+      <div><b>E</b> APU’ya / kuleye bin · in · <b>V</b> APU iç / dış kamera</div>
+      <div><b>1–7</b> hazırlıkta dükkândan al · <b>Enter</b> hazırım · <b>Esc</b> duraklat</div>
     </div>
     <div class="controls touch-only">
       <div><b>Sol başparmak</b> hareket · <b>Sağ yarıda kaydır</b> nişan</div>
-      <div><b>ATEŞ</b> basılı tut · <b>DÜRBÜN</b> aç / kapat</div>
+      <div><b>ATEŞ</b> basılı tut · <b>DÜRBÜN</b> aç / kapat · <b>ROKET</b> dolunca at</div>
       <div><b>BİN</b> APU’ya / kuleye bin · in · <b>KAM</b> iç / dış kamera</div>
     </div>
     <div class="buttons">

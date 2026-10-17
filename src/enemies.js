@@ -213,6 +213,8 @@ export class Swarm {
       const dist = _d.length();
       if (this.state[i] === ATTACK) sp = Math.min(sp, dist * 3);
       if (dist > 0.001) _d.multiplyScalar(sp / dist);
+      // Hareketli hedefe (Hammer) yetişmek için hedefin hızını ekle
+      if (tgt && tgt.vel && (this.state[i] === SEEK || this.state[i] === ATTACK)) _d.add(tgt.vel);
       const w = time * 2 + i * 1.7;
       _d.x += Math.sin(w) * 1.5; _d.y += Math.cos(w * 1.3) * 1; _d.z += Math.sin(w * 0.7) * 1.5;
       const k = Math.min(1, dt * (this.state[i] === ATTACK ? 5 : 1.6));
@@ -343,7 +345,46 @@ export class Swarm {
     return hit;
   }
 
-  damage(i, amount) {
+  // Belirli bir noktada doğrudan saldırı modunda doğar (Hammer tüneli)
+  spawnAt(p, v) {
+    for (let i = 0; i < this.max; i++) {
+      if (this.state[i] !== DEAD) continue;
+      const j = i * 3;
+      this.pos[j] = p.x; this.pos[j + 1] = p.y; this.pos[j + 2] = p.z;
+      this.vel[j] = v.x; this.vel[j + 1] = v.y; this.vel[j + 2] = v.z;
+      this.goal[j] = p.x; this.goal[j + 1] = p.y; this.goal[j + 2] = p.z;
+      _d.set(Math.random() - 0.5, Math.random() - 0.3, Math.random() - 0.5).normalize();
+      this.off[j] = _d.x; this.off[j + 1] = _d.y; this.off[j + 2] = _d.z;
+      this.hp[i] = 40;
+      this.speed[i] = 7 + Math.random() * 4;
+      this.state[i] = SEEK;
+      this.tick[i] = Math.random();
+      this.target[i] = this.pickTarget();
+      this.alive++;
+      return true;
+    }
+    return false;
+  }
+
+  // Bölüm geçişinde hepsini sessizce kaldır
+  clearAll() {
+    for (let i = 0; i < this.max; i++) {
+      if (this.state[i] === DEAD) continue;
+      this.state[i] = DEAD;
+      this.body.setMatrixAt(i, ZERO);
+      this.eyes.setMatrixAt(i, ZERO);
+    }
+    this.alive = 0;
+    this.body.instanceMatrix.needsUpdate = true;
+    this.eyes.instanceMatrix.needsUpdate = true;
+  }
+
+  // EMP: hepsi aynı anda düşer
+  killAll() {
+    for (let i = 0; i < this.max; i++) if (this.state[i] !== DEAD) this.damage(i, 1e9, false, true);
+  }
+
+  damage(i, amount, byPlayer = false, quiet = false) {
     if (this.state[i] === DEAD) return false;
     this.hp[i] -= amount;
     if (this.hp[i] > 0) return false;
@@ -352,19 +393,21 @@ export class Swarm {
     this.alive--;
     this.body.setMatrixAt(i, ZERO);
     this.eyes.setMatrixAt(i, ZERO);
-    this.game.effects.explosion(_p.set(this.pos[j], this.pos[j + 1], this.pos[j + 2]), 0.45);
+    _p.set(this.pos[j], this.pos[j + 1], this.pos[j + 2]);
+    if (quiet) this.game.effects.sparks(_p, 4, _ember, 5);
+    else this.game.effects.explosion(_p, 0.45);
     this.addCorpse(i);
-    sfx.pop();
-    this.game.onKill();
+    if (!quiet) sfx.pop();
+    this.game.onKill(byPlayer);
     return true;
   }
 
-  damageRadius(c, r, amount, skip = -1) {
+  damageRadius(c, r, amount, skip = -1, byPlayer = false) {
     for (let i = 0; i < this.max; i++) {
       if (i === skip || this.state[i] === DEAD) continue;
       const j = i * 3;
       const dx = this.pos[j] - c.x, dy = this.pos[j + 1] - c.y, dz = this.pos[j + 2] - c.z;
-      if (dx * dx + dy * dy + dz * dz < r * r) this.damage(i, amount);
+      if (dx * dx + dy * dy + dz * dz < r * r) this.damage(i, amount, byPlayer);
     }
   }
 }
