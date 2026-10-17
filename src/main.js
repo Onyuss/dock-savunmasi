@@ -19,6 +19,7 @@ import { Shop } from './shop.js';
 import { Rockets } from './rockets.js';
 import { HammerLevel } from './hammer.js';
 import { Campaign } from './campaign.js';
+import { loadModels } from './models.js';
 
 // --- Görüntüleyici (dahili ekran kartları için hafif ayarlar)
 const canvas = document.getElementById('game');
@@ -251,6 +252,7 @@ const _shotPt = new THREE.Vector3();
 const _dimSpark = new THREE.Color(0.7, 0.65, 0.5);
 const _v = new THREE.Vector3();
 
+await loadModels();
 game.swarm = new Swarm(game, 320);
 game.infantry = new Infantry(game, new THREE.Vector3(0, 0, 36));
 world.apuSpots.forEach((s, i) => game.apus.push(new APU(game, s, i)));
@@ -336,7 +338,8 @@ function interactions() {
     }
   } else if (p !== game.infantry) {
     const [kE, kV] = isTouch ? ['BİN', 'KAM'] : ['E', 'V'];
-    prompt = p.kind === 'apu' ? kE + ' — in · ' + kV + ' — ' + (p.view === 'inside' ? 'dış' : 'iç') + ' kamera' : kE + ' — kuleden in';
+    const kR = isTouch ? 'ŞARJÖR' : 'R';
+    prompt = p.kind === 'apu' ? kE + ' — in · ' + kV + ' — ' + (p.view === 'inside' ? 'dış' : 'iç') + ' kamera · ' + kR + ' — silahları çevir' : kE + ' — kuleden in';
     if (input.hit('KeyE')) {
       const inf = game.infantry;
       p.exitPos(inf.pos);

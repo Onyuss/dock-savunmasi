@@ -1,28 +1,14 @@
 import * as THREE from 'three';
 import { makeBlob } from './world.js';
-import { metalMaterial, pbrMaterial } from './textures.js';
+import { models } from './models.js';
 import { sfx } from './audio.js';
 
 const _v = new THREE.Vector3();
 const _w = new THREE.Vector3();
 const _e = new THREE.Euler();
 
-const MAT = {
-  frame: pbrMaterial('green_metal_rust', { metalness: 0.7, repeat: [2, 2], color: 0xb4bcae }),
-  dark: metalMaterial({ cols: 1, rows: 1, color: [40, 44, 42], rivets: false, grime: 0.5, seed: 22, size: 256 }, { metalness: 0.7 }),
-  stripe: metalMaterial({ cols: 1, rows: 1, color: [80, 86, 78], stripes: true, grime: 0.6, seed: 23, size: 256 }, { metalness: 0.6 }),
-  green: new THREE.MeshBasicMaterial({ color: new THREE.Color(0.4, 2.2, 0.8) }),
-  orange: new THREE.MeshBasicMaterial({ color: new THREE.Color(2.5, 1.0, 0.25) }),
-};
-
-function add(parent, geo, mat, x, y, z) {
-  const m = new THREE.Mesh(geo, mat);
-  m.position.set(x, y, z);
-  parent.add(m);
-  return m;
-}
-
-// Sabit savunma kulesi: ikiz namlulu uçaksavar
+// Sabit savunma kulesi: ikiz namlulu uçaksavar. Model Blender'da üretilir:
+// Head yatayda döner, Gun dikeyde nişan alır, Muzzle0/1 namlu ağızları.
 export class Turret {
   constructor(game, x, z, yaw, index) {
     this.game = game;
@@ -45,42 +31,12 @@ export class Turret {
     this.aimPitch = 0.35;
     this.idleT = Math.random() * 10;
 
-    const g = new THREE.Group();
+    const g = models.turret.clone(true);
     g.position.copy(this.base);
-    add(g, new THREE.CylinderGeometry(1.3, 1.9, 8, 10), MAT.frame, 0, 4, 0);
-    for (let y = 1; y < 8; y += 0.6) add(g, new THREE.BoxGeometry(0.9, 0.06, 0.06), MAT.dark, 0, y, 1.75);
-    add(g, new THREE.CylinderGeometry(2.8, 2.8, 0.4, 16), MAT.dark, 0, 8.2, 0);
-    const rail = add(g, new THREE.TorusGeometry(2.8, 0.05, 4, 24), MAT.green, 0, 8.45, 0);
-    rail.rotation.x = Math.PI / 2;
-
-    this.head = new THREE.Group();
-    this.head.position.y = 8.6;
-    g.add(this.head);
-    add(this.head, new THREE.CylinderGeometry(1.1, 1.3, 0.8, 12), MAT.frame, 0, 0.4, 0);
-    add(this.head, new THREE.BoxGeometry(0.7, 0.6, 0.7), MAT.dark, 0, 0.9, 0.9);
-    this.gun = new THREE.Group();
-    this.gun.position.set(0, 1.3, 0);
-    this.head.add(this.gun);
-    add(this.gun, new THREE.BoxGeometry(1.6, 0.7, 1.4), MAT.frame, 0, 0, 0);
-    add(this.gun, new THREE.BoxGeometry(2.4, 1.2, 0.12), MAT.stripe, 0, 0.3, -0.8);
-    add(this.gun, new THREE.BoxGeometry(0.5, 0.6, 1.0), MAT.dark, -1.1, -0.1, 0.2);
-    add(this.gun, new THREE.BoxGeometry(0.5, 0.6, 1.0), MAT.dark, 1.1, -0.1, 0.2);
-    add(this.gun, new THREE.BoxGeometry(2.42, 0.06, 0.14), MAT.orange, 0, 0.88, -0.8);
-    this.muzzles = [];
-    for (const bx of [-0.45, 0.45]) {
-      const b = add(this.gun, new THREE.CylinderGeometry(0.1, 0.12, 3.6, 10), MAT.dark, bx, 0, -2.4);
-      b.rotation.x = Math.PI / 2;
-      const mz = new THREE.Object3D();
-      mz.position.set(bx, 0, -4.3);
-      this.gun.add(mz);
-      this.muzzles.push(mz);
-    }
-    for (let k = 0; k < 4; k++) {
-      const a = (k / 4) * Math.PI * 2 + Math.PI / 4;
-      const strut = add(g, new THREE.BoxGeometry(0.25, 8.6, 0.25), MAT.dark, Math.cos(a) * 2.3, 4, Math.sin(a) * 2.3);
-      strut.rotation.set(Math.sin(a) * 0.12, 0, -Math.cos(a) * 0.12);
-    }
-    makeBlob(game.scene, 4, 0.8).position.set(x, 0.03, z);
+    this.head = g.getObjectByName('Head');
+    this.gun = g.getObjectByName('Gun');
+    this.muzzles = [g.getObjectByName('Muzzle0'), g.getObjectByName('Muzzle1')];
+    makeBlob(game.scene, 4.5, 0.8).position.set(x, 0.03, z);
     this.group = g;
     game.scene.add(g);
     game.colliders.push({ x, z, r: 2.1 });

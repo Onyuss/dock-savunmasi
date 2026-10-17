@@ -76,6 +76,17 @@ Geliştirme için `http://localhost:8080/?test` adresi fare kilidi olmadan çal�
 Sol başparmak: sanal joystick (sonuna kadar itince koşar) · Sağ yarıda kaydır: nişan ·
 ATEŞ (basılı tut) · DÜRBÜN (aç / kapat) · BİN · KAM · ZIPLA · ŞARJÖR · II (duraklat)
 
+## 3B modeller (Blender)
+
+APU ve savunma kulesi `tools/build_models.py` betiğiyle Blender'da üretilir (pahlı parçalar,
+pişirilmiş gölge) ve `assets/models/*.glb` olarak dışa aktarılır. Parçalar ayrı düğümlerdir
+(bacaklar, kollar, eller, tabancalar), böylece oyunda animasyon yapılabilir.
+
+```
+blender -b --factory-startup -P tools/build_models.py -- assets/models
+blender -b --factory-startup -P tools/render_preview.py -- assets/models/apu.glb onizleme.png
+```
+
 ## Kaynaklar ve lisanslar
 
 - Dokular ve HDRI: [Poly Haven](https://polyhaven.com) — CC0 (metal_plate, rusty_metal_02, rusty_metal_sheet, green_metal_rust, industrial_pipe_and_valve_01)
