@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
-import { metalMaterial } from './textures.js';
+import { metalMaterial, pbrMaterial } from './textures.js';
 
 // Blender'da betikle üretilen modeller (tools/build_models.py → assets/models/*.glb).
 // Malzemeler adlarına göre oyunun dokulu malzemeleriyle değiştirilir;
@@ -8,11 +8,13 @@ import { metalMaterial } from './textures.js';
 
 const ao = { vertexColors: true };
 const MATS = {
-  Frame: metalMaterial({ cols: 2, rows: 2, color: [126, 131, 134], grime: 0.6, rust: 0.12, scratches: 1, seed: 41, size: 256, roughness: 0.45 }, { metalness: 0.75, bump: 1.3 }),
-  Dark: metalMaterial({ cols: 1, rows: 2, color: [70, 74, 77], grime: 0.5, rust: 0.1, seed: 42, size: 256 }, { metalness: 0.7 }),
-  Gun: metalMaterial({ cols: 1, rows: 4, color: [112, 116, 118], grime: 0.7, rivets: false, scratches: 1, seed: 43, size: 256, roughness: 0.4 }, { metalness: 0.8, bump: 1.6 }),
-  Stripe: metalMaterial({ cols: 1, rows: 1, color: [140, 145, 148], stripes: true, grime: 0.6, seed: 44, size: 256 }, { metalness: 0.6 }),
-  Black: new THREE.MeshStandardMaterial({ color: 0x1c1d1e, metalness: 0.5, roughness: 0.5 }),
+  // Gri askeri boya; köşelerde ve altta pas lekeleri, kir, çizikler
+  Frame: metalMaterial({ cols: 2, rows: 2, color: [120, 124, 126], grime: 0.9, rust: 0.75, scratches: 1, seed: 41, roughness: 0.5 }, { metalness: 0.6, bump: 1.4 }),
+  Gun: metalMaterial({ cols: 1, rows: 3, color: [96, 99, 100], grime: 0.9, rust: 0.6, rivets: false, scratches: 1, seed: 43, roughness: 0.45 }, { metalness: 0.7, bump: 1.6 }),
+  Stripe: metalMaterial({ cols: 1, rows: 1, color: [124, 128, 130], stripes: true, grime: 0.8, rust: 0.6, seed: 44, size: 256 }, { metalness: 0.5 }),
+  // Koyu mekanik parçalar: Poly Haven'ın gerçek pas dokusu
+  Dark: pbrMaterial('rusty_metal_sheet', { repeat: [0.6, 0.6], metalness: 0.55, color: 0x77746e }),
+  Black: pbrMaterial('rusty_metal_02', { repeat: [0.8, 0.8], metalness: 0.5, color: 0x3a3836 }),
   Brass: new THREE.MeshStandardMaterial({ color: 0xa27a3c, metalness: 0.9, roughness: 0.32 }),
   Chain: new THREE.MeshStandardMaterial({ color: 0x18191a, metalness: 0.75, roughness: 0.42 }),
   Cloth: new THREE.MeshStandardMaterial({ color: 0x3a3631, roughness: 0.95 }),

@@ -33,6 +33,35 @@ function flashTexture() {
   return new THREE.CanvasTexture(c);
 }
 
+// Yumuşak, düzensiz kenarlı duman bulutu dokusu
+function smokeTexture() {
+  const c = document.createElement('canvas');
+  c.width = c.height = 128;
+  const g = c.getContext('2d');
+  for (let i = 0; i < 26; i++) {
+    const x = 64 + (Math.random() - 0.5) * 50, y = 64 + (Math.random() - 0.5) * 50, r = 18 + Math.random() * 26;
+    const grd = g.createRadialGradient(x, y, 0, x, y, r);
+    grd.addColorStop(0, 'rgba(255,255,255,0.22)');
+    grd.addColorStop(1, 'rgba(255,255,255,0)');
+    g.fillStyle = grd;
+    g.fillRect(0, 0, 128, 128);
+  }
+  return new THREE.CanvasTexture(c);
+}
+
+function ringTexture() {
+  const c = document.createElement('canvas');
+  c.width = c.height = 128;
+  const g = c.getContext('2d');
+  const grd = g.createRadialGradient(64, 64, 30, 64, 64, 62);
+  grd.addColorStop(0, 'rgba(255,255,255,0)');
+  grd.addColorStop(0.75, 'rgba(255,220,170,0.9)');
+  grd.addColorStop(1, 'rgba(255,255,255,0)');
+  g.fillStyle = grd;
+  g.fillRect(0, 0, 128, 128);
+  return new THREE.CanvasTexture(c);
+}
+
 const _m = new THREE.Matrix4();
 const _q = new THREE.Quaternion();
 const _s = new THREE.Vector3();
@@ -94,6 +123,69 @@ export class Effects {
     this.light = new THREE.PointLight(0xffb060, 0, 18, 1.6);
     scene.add(this.light);
     this.lightLife = 0;
+
+    // --- Gerçek duman: normal karışımlı, büyüyen ve sönen bulut sprite'ları
+    const smokeTex = smokeTexture();
+    this.smokes = Array.from({ length: 260 }, () => {
+      const s = new THREE.Sprite(new THREE.SpriteMaterial({ map: smokeTex, color: 0x7a7a74, transparent: true, depthWrite: false, opacity: 0 }));
+      s.visible = false;
+      s.userData = { life: 0, max: 1, grow: 1, vel: new THREE.Vector3(), alpha: 0.5 };
+      scene.add(s);
+      return s;
+    });
+    this.sNext = 0;
+
+    // --- Patlama şok halkası
+    const ringTex = ringTexture();
+    this.rings = Array.from({ length: 6 }, () => {
+      const s = new THREE.Sprite(new THREE.SpriteMaterial({ map: ringTex, color: new THREE.Color(2, 1.4, 0.8), transparent: true, depthWrite: false, blending: THREE.AdditiveBlending }));
+      s.visible = false;
+      s.userData = { life: 0, size: 1 };
+      scene.add(s);
+      return s;
+    });
+    this.rNext = 0;
+  }
+
+  smoke(pos, size = 1, life = 1.6, alpha = 0.5, color = 0x7a7a74, vel = null) {
+    const s = this.smokes[this.sNext];
+    this.sNext = (this.sNext + 1) % this.smokes.length;
+    const d = s.userData;
+    s.position.copy(pos);
+    s.scale.setScalar(size);
+    s.material.color.set(color);
+    s.material.rotation = Math.random() * Math.PI * 2;
+    d.life = d.max = life;
+    d.grow = size * 2.2;
+    d.alpha = alpha;
+    d.base = size;
+    if (vel) d.vel.copy(vel); else d.vel.set((Math.random() - 0.5) * 0.6, 0.5 + Math.random() * 0.5, (Math.random() - 0.5) * 0.6);
+    s.visible = true;
+  }
+
+  shockwave(pos, size) {
+    const s = this.rings[this.rNext];
+    this.rNext = (this.rNext + 1) % this.rings.length;
+    s.position.copy(pos);
+    s.userData.life = 0.35;
+    s.userData.size = size;
+    s.visible = true;
+  }
+
+  // Roket patlaması: alev topu, şok halkası, duman mantarı, kıvılcımlar
+  bigExplosion(pos, scale = 1) {
+    this.explosion(pos, 3 * scale);
+    this.flash(pos, 6 * scale, 0.12);
+    this.shockwave(pos, 16 * scale);
+    for (let k = 0; k < 10; k++) {
+      _v.set((Math.random() - 0.5) * 4, Math.random() * 3, (Math.random() - 0.5) * 4).multiplyScalar(scale);
+      this.smoke(pos.clone().add(_v), (2.5 + Math.random() * 2) * scale, 2.5 + Math.random() * 1.5, 0.6, k < 4 ? 0x4a3a2c : 0x5c5c58,
+        _v.set((Math.random() - 0.5) * 2, 1.2 + Math.random() * 1.5, (Math.random() - 0.5) * 2));
+    }
+    for (let k = 0; k < 20 * scale; k++) {
+      _v.set(Math.random() - 0.5, Math.random() * 0.8, Math.random() - 0.5).normalize().multiplyScalar(10 + Math.random() * 14);
+      this.spawn(pos, _v, new THREE.Color(1, 0.7, 0.3), 0.8 + Math.random() * 0.6, 1.2);
+    }
   }
 
   spawn(pos, vel, color, life, grav = 1) {
@@ -208,6 +300,28 @@ export class Effects {
     if (this.lightLife > 0) {
       this.lightLife -= dt;
       if (this.lightLife <= 0) this.light.intensity = 0;
+    }
+
+    for (const s of this.smokes) {
+      if (!s.visible) continue;
+      const d = s.userData;
+      d.life -= dt;
+      if (d.life <= 0) { s.visible = false; continue; }
+      const k = 1 - d.life / d.max;                       // 0 → 1
+      s.position.addScaledVector(d.vel, dt);
+      d.vel.multiplyScalar(1 - dt * 0.6);
+      s.scale.setScalar(d.base + d.grow * Math.sqrt(k));
+      s.material.opacity = d.alpha * Math.min(1, k * 8) * (1 - k);
+      s.material.rotation += dt * 0.2;
+    }
+    for (const s of this.rings) {
+      if (!s.visible) continue;
+      const d = s.userData;
+      d.life -= dt;
+      if (d.life <= 0) { s.visible = false; continue; }
+      const k = 1 - d.life / 0.35;
+      s.scale.setScalar(2 + d.size * k);
+      s.material.opacity = 1 - k;
     }
   }
 }

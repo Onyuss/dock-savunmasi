@@ -85,12 +85,12 @@ class Group:
         else:
             self.empty.location = self.pivot
 
-    def finish(self, obj, mat, bevel):
+    def finish(self, obj, mat, bevel, segments=4):
         obj.data.materials.append(MATS[mat])
         if bevel and bevel > 0:
             b = obj.modifiers.new('bev', 'BEVEL')
             b.width = bevel
-            b.segments = 2
+            b.segments = segments
             b.limit_method = 'ANGLE'
             b.angle_limit = math.radians(35)
             b.miter_outer = 'MITER_ARC'
@@ -110,7 +110,8 @@ class Group:
         bpy.ops.object.transform_apply(scale=True)
         o.rotation_euler = game_rot(*rot)
         o.location = G(*pos)
-        return self.finish(o, mat, min(size) * 0.14 if bevel is None else bevel)
+        # Yumuşak hatlar: kısa kenarın ~%28'i kadar yuvarlatma
+        return self.finish(o, mat, min(min(size) * 0.28, 0.12) if bevel is None else bevel)
 
     def cyl(self, r, h, pos, axis='y', mat='Dark', verts=20, rot=(0, 0, 0), r2=None, bevel=None):
         bpy.ops.mesh.primitive_cone_add(vertices=verts, radius1=r, radius2=r if r2 is None else r2, depth=h)
@@ -118,7 +119,7 @@ class Group:
         base = {'y': Euler((0, 0, 0)), 'x': Euler((0, math.pi / 2, 0)), 'z': Euler((math.pi / 2, 0, 0))}[axis].to_matrix()
         o.rotation_euler = (game_rot(*rot).to_matrix() @ base).to_euler()
         o.location = G(*pos)
-        return self.finish(o, mat, min(r, h) * 0.12 if bevel is None else bevel)
+        return self.finish(o, mat, min(min(r, h) * 0.25, 0.08) if bevel is None else bevel)
 
     def link(self, a, b, t, mat='Dark', t2=None):
         A, B = G(*a), G(*b)
@@ -130,7 +131,7 @@ class Group:
         o.rotation_mode = 'QUATERNION'
         o.rotation_quaternion = d.to_track_quat('Z', 'Y')
         o.location = (A + B) / 2
-        return self.finish(o, mat, min(t, t2 or t) * 0.15)
+        return self.finish(o, mat, min(t, t2 or t) * 0.3)
 
     def rod(self, a, b, r, mat='Brass', verts=12):
         A, B = G(*a), G(*b)
@@ -197,7 +198,7 @@ class Group:
             o.rotation_mode = 'QUATERNION'
             o.rotation_quaternion = d.to_track_quat('Y', 'Z')
             o.location = p
-            self.finish(o, mat, 0.015)
+            self.finish(o, mat, 0.02, 1)
 
     def build(self):
         """Değiştiricileri uygula, UV ver, birleştir, pivot'a göre yerleştir."""

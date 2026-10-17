@@ -197,10 +197,15 @@ const game = {
 
   // Roket: atılan yer silahın ağzı ya da kameranın biraz önü
   fireRocket(from) {
-    if (!from) from = _v.copy(camera.position).add(camera.getWorldDirection(_aimDir).multiplyScalar(2)).add(_aimDir.set(0, -0.4, 0)).clone();
-    if (!this.rockets.fire(from, this.aimPoint().clone())) {
-      if (!this.rockets.ready) this.message('Roket doluyor', 0.8);
-    }
+    const dir = camera.getWorldDirection(new THREE.Vector3());
+    if (!from) from = camera.position.clone().addScaledVector(dir, 2.5).add(_v.set(0, -0.5, 0));
+    const res = this.rockets.fire(from, camera.position.clone(), dir, this.aimPoint().clone());
+    if (res === 'enemy') this.message('HEDEFE KİLİTLENDİ', 0.7);
+    else if (res === 'gate') this.message('KİLİDE KİLİTLENDİ', 0.7);
+    else if (!res && !this.rockets.ready) this.message('Roket doluyor', 0.8);
+  },
+  gateLockTarget() {
+    return campaign.phase === 'final' && world.gate.lockAlive ? world.gate.lockPos : null;
   },
   gateLockHit(p, r) {
     return campaign.phase === 'final' && world.gate.lockAlive && p.distanceTo(world.gate.lockPos) < r;
@@ -460,6 +465,8 @@ if (testMode) {
   window.game = game;
   window.campaign = campaign;
   window.hammer = hammer;
+  // Arka plandaki sekmede elle bir kare çizdirmek için
+  window.renderFrame = () => { game.pawn.applyCamera(camera); composer.render(); };
   if (isTouch) { input.touchActive = true; document.body.classList.add('playing'); }
 }
 
