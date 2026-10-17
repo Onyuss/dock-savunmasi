@@ -331,7 +331,8 @@ function interactions() {
   const p = game.pawn;
   let prompt = '';
   if (p.kind === 'hammer') {
-    // Hammer topçusu koltuktan inemez
+    // Hammer topçusu koltuktan inemez; yalnızca görünüm değiştirir
+    prompt = (isTouch ? 'KAM' : 'V') + ' — ' + (p.view === 'cockpit' ? 'dış görünüm' : 'nişancı ekranı');
   } else if (p === game.infantry && p.alive) {
     const near = [...game.apus, ...game.turrets].find((v) => v.canEnter(p.pos));
     if (near) {
@@ -392,7 +393,17 @@ function updateHud(dt) {
   }
   setText('ammoTxt', p.kind === 'infantry'
     ? (p.reload > 0 ? 'Şarjör değişiyor…' : p.ammo + ' / ∞')
-    : p.kind === 'apu' ? 'SOL ' + p.ammo[0] + ' · SAĞ ' + p.ammo[1] : 'Sınırsız');
+    : p.kind === 'apu' ? 'SOL ' + p.ammo[0] + ' · SAĞ ' + p.ammo[1] : p.kind === 'hammer' ? p.ammoText : 'Sınırsız');
+  // Hammer nişancı ekranı
+  const gunner = p.kind === 'hammer' && p.view === 'cockpit';
+  document.body.classList.toggle('gunner', gunner);
+  if (gunner) {
+    const cv = $('gunnerCanvas');
+    if (cv.width !== innerWidth || cv.height !== innerHeight) { cv.width = innerWidth; cv.height = innerHeight; }
+    p.drawTargets(cv.getContext('2d'), cv.width, cv.height);
+    setText('gunnerRead', 'BANT ' + p.ammoText + '\nISI ' + Math.round(p.heat) + '%' + (p.overheated ? ' KİLİT' : '') +
+      '\nGÖVDE ' + Math.ceil(p.hp / p.maxHp * 100) + '%\nROKET ' + (game.rockets.ready ? 'HAZIR' : Math.round(game.rockets.progress * 100) + '%'));
+  }
   setText('hpLbl', p.kind === 'hammer' ? 'GÖVDE' : 'ZIRH');
   hitT -= dt;
   $('hitmarker').className = hitT > 0 ? 'on' : '';
